@@ -1,7 +1,8 @@
 /**
- * Run this script to generate a sample Excel contacts file
- * Usage: node generate-sample-excel.js
+ * Generate Sample Excel Contacts File
+ * Run: node generate-sample-excel.js
  */
+
 const xlsx = require("xlsx");
 
 const contacts = [
@@ -17,10 +18,22 @@ const contacts = [
   { Name: "Pooja Nair", Email: "pooja.nair@example.com", Phone: "8111222333", Gender: "female" },
 ];
 
+// Convert JSON → Sheet
 const ws = xlsx.utils.json_to_sheet(contacts);
+
+// Optional: auto column width fix (nice UX)
+const colWidths = Object.keys(contacts[0]).map(key => ({
+  wch: Math.max(key.length, 15)
+}));
+ws["!cols"] = colWidths;
+
+// Create workbook
 const wb = xlsx.utils.book_new();
 xlsx.utils.book_append_sheet(wb, ws, "Contacts");
-xlsx.writeFile(wb, "sample-contacts.xlsx");
 
-console.log("✅ sample-contacts.xlsx created!");
-console.log(`   ${contacts.length} sample contacts`);
+// Save file
+const fileName = "sample-contacts.xlsx";
+xlsx.writeFile(wb, fileName);
+
+console.log(`✅ ${fileName} created successfully!`);
+console.log(`📌 Total contacts: ${contacts.length}`);
