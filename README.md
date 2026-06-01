@@ -157,3 +157,7 @@ WhatsApp does **not** allow direct API access without the official WhatsApp Busi
 ## 📝 License
 
 MIT — Free to use and modify.
+
+
+Link Of Google App
+https://myaccount.google.com/apppasswords?utm_source=chatgpt.com
