@@ -113,3 +113,34 @@ export interface ApiResponse<T> {
   data?: T;
   error?: string;
 }
+
+export interface SmsCampaign {
+  id: string;
+  template: string;
+  fromNumber: string;
+  totalTargets: number;
+  sentCount: number;
+  failedCount: number;
+  status: SendStatus;
+  createdAt: string;
+  completedAt: string | null;
+  logs: SmsLog[];
+}
+
+export interface SmsLog {
+  id: string;
+  campaignId: string;
+  contactId: string;
+  contactName: string;
+  contactPhone: string;
+  message: string;
+  status: SendStatus;
+  sentAt: string | null;
+  sid: string | null;
+  error: string | null;
+}
+
+export interface SendSmsPayload {
+  template: string;
+  contactIds: string[];
+}

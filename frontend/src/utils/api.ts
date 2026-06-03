@@ -3,9 +3,11 @@ import {
   Contact,
   EmailCampaign,
   WhatsAppCampaign,
+  SmsCampaign,
   UploadSession,
   SendEmailPayload,
   SendWhatsAppPayload,
+  SendSmsPayload,
 } from "../types";
 
 const BASE = "/api";
@@ -55,3 +57,13 @@ export const sendWhatsAppCampaign = (payload: SendWhatsAppPayload) =>
 // ─── Upload Sessions ──────────────────────────────────────────
 export const getUploadSessions = () =>
   api.get<UploadSession[]>("/upload-sessions").then((r) => r.data);
+
+// ─── SMS ──────────────────────────────────────────────────────
+export const getSmsCampaigns = () =>
+  api.get<SmsCampaign[]>("/sms-campaigns").then((r) => r.data);
+
+export const sendSmsCampaign = (payload: SendSmsPayload) =>
+  api.post("/sms-campaigns/send", payload).then((r) => r.data);
+
+export const getAdbStatus = () =>
+  api.get<{ connected: boolean; device: string | null; message: string }>("/sms/adb-status").then((r) => r.data);

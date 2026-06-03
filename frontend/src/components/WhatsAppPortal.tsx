@@ -76,17 +76,6 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
           <h2>💬 WhatsApp Portal</h2>
           <p>Send bulk WhatsApp messages to your contacts</p>
         </div>
-        <div style={{
-          background: "#fef9c3",
-          border: "1px solid #fde68a",
-          borderRadius: "var(--radius)",
-          padding: "8px 14px",
-          fontSize: "0.78rem",
-          color: "#92400e",
-          maxWidth: 260,
-        }}>
-          <strong>Note:</strong> Demo uses simulated sends. For real delivery, integrate Twilio/Official WhatsApp Business API.
-        </div>
       </div>
 
       {/* Stats */}
