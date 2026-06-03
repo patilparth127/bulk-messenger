@@ -695,8 +695,7 @@ function sendSmsViaAdb(phone, message) {
         resolve({
           success: false,
           error: err.message,
-        });
-      } else {
+        });   
         resolve({
           success: true,
         });
