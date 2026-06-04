@@ -10,15 +10,17 @@ import {
   Smartphone,
   Settings as SettingsIcon,
   LogOut,
+  Shield,
 } from "lucide-react";
 import "./styles.css";
-import { Contact, EmailCampaign, SmsCampaign, WhatsAppCampaign, User } from "./types";
+import { Contact, EmailCampaign, SmsCampaign, WhatsAppCampaign, User, UserRole } from "./types";
 import {
   getContacts,
   getEmailCampaigns,
   getSmsCampaigns,
   getWhatsAppCampaigns,
   logout,
+  getCurrentUser,
 } from "./utils/api";
 import Dashboard from "./components/Dashboard";
 import ContactList from "./components/ContactList";
@@ -27,8 +29,9 @@ import WhatsAppPortal from "./components/WhatsAppPortal";
 import SmsPortal from "./components/SmsPortal";
 import Settings from "./components/Settings";
 import Login from "./components/Login";
+import UserManagement from "./components/UserManagement";
 
-type Page = "dashboard" | "contacts" | "email" | "whatsapp" | "sms" | "settings";
+type Page = "dashboard" | "contacts" | "email" | "whatsapp" | "sms" | "settings" | "users";
 
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
@@ -43,13 +46,17 @@ export default function App() {
   useEffect(() => {
     const storedEmail = localStorage.getItem("userEmail");
     const storedName = localStorage.getItem("userName");
-    if (storedEmail && storedName) {
-      setUser({
-        id: "demo-user",
-        email: storedEmail,
-        name: storedName,
-        createdAt: new Date().toISOString(),
-        lastLoginAt: new Date().toISOString(),
+    const storedToken = localStorage.getItem("authToken");
+    if (storedEmail && storedName && storedToken) {
+      // Verify the token with the backend
+      getCurrentUser().then((currentUser) => {
+        setUser(currentUser);
+      }).catch(() => {
+        // Token invalid, clear storage
+        localStorage.removeItem("userEmail");
+        localStorage.removeItem("userName");
+        localStorage.removeItem("authToken");
+        setUser(null);
       });
     }
   }, []);
@@ -64,6 +71,7 @@ export default function App() {
       await logout();
       localStorage.removeItem("userEmail");
       localStorage.removeItem("userName");
+      localStorage.removeItem("authToken");
       setUser(null);
       toast.success("Logged out successfully");
     } catch (error) {
@@ -82,8 +90,9 @@ export default function App() {
       setEmailCampaigns(e);
       setWaCampaigns(w);
       setSmsCampaigns(s);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Fetch error:", err);
+      toast.error("Failed to load data. Please check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -132,6 +141,11 @@ export default function App() {
         label: "Settings",
         icon: <SettingsIcon size={16} />,
       },
+      ...(user?.role === UserRole.ADMIN ? [{
+        id: "users" as Page,
+        label: "User Management",
+        icon: <Shield size={16} />,
+      }] : []),
     ];
 
   const activeClass = (id: Page) =>
@@ -276,6 +290,9 @@ export default function App() {
             )}
             {page === "settings" && (
               <Settings />
+            )}
+            {page === "users" && user && (
+              <UserManagement currentUser={user} onRefresh={refresh} />
             )}
           </>
         )}

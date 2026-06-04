@@ -1,8 +1,8 @@
 import React, { useState } from "react";
-import { LogIn, Mail, Lock, Shield } from "lucide-react";
+import { LogIn, Mail, Lock, Shield, User as UserIcon, Key } from "lucide-react";
 import toast from "react-hot-toast";
-import { googleLogin } from "../utils/api";
-import { User } from "../types";
+import { googleLogin, login } from "../utils/api";
+import { User, AuthMethod } from "../types";
 
 interface Props {
   onLogin: (user: User) => void;
@@ -10,6 +10,9 @@ interface Props {
 
 export default function Login({ onLogin }: Props) {
   const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<"google" | "password">("password");
+  const [credentials, setCredentials] = useState({ username: "", password: "" });
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleGoogleLogin = async () => {
     setLoading(true);
@@ -21,6 +24,7 @@ export default function Login({ onLogin }: Props) {
       if (response.success && response.user) {
         localStorage.setItem("userEmail", response.user.email);
         localStorage.setItem("userName", response.user.name);
+        localStorage.setItem("authToken", response.token || "");
         toast.success(`Welcome, ${response.user.name}!`);
         onLogin(response.user);
       } else {
@@ -28,6 +32,43 @@ export default function Login({ onLogin }: Props) {
       }
     } catch (error) {
       toast.error("Failed to login");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePasswordLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrors({});
+    
+    const errs: Record<string, string> = {};
+    if (!credentials.username.trim()) errs.username = "Username is required";
+    if (!credentials.password.trim()) errs.password = "Password is required";
+    
+    if (Object.keys(errs).length) {
+      setErrors(errs);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await login({
+        username: credentials.username,
+        password: credentials.password,
+        authMethod: AuthMethod.USERNAME_PASSWORD,
+      });
+      
+      if (response.success && response.user) {
+        localStorage.setItem("userEmail", response.user.email);
+        localStorage.setItem("userName", response.user.name);
+        localStorage.setItem("authToken", response.token || "");
+        toast.success(`Welcome, ${response.user.name}!`);
+        onLogin(response.user);
+      } else {
+        toast.error(response.error || "Login failed");
+      }
+    } catch (error: any) {
+      toast.error(error?.response?.data?.error || "Failed to login");
     } finally {
       setLoading(false);
     }
@@ -70,20 +111,110 @@ export default function Login({ onLogin }: Props) {
             </p>
           </div>
 
-          <button
-            className="btn btn-lg w-full"
-            style={{
-              background: "white",
-              color: "var(--text-primary)",
-              border: "1px solid var(--border)",
-              marginBottom: 16,
-            }}
-            onClick={handleGoogleLogin}
-            disabled={loading}
-          >
-            {loading ? <span className="spinner spinner-dark" /> : <LogIn size={18} />}
-            {loading ? "Signing in..." : "Sign in with Google"}
-          </button>
+          <div style={{
+            display: "flex",
+            gap: 8,
+            marginBottom: 24,
+            borderBottom: "1px solid var(--border-light)",
+          }}>
+            <button
+              className={`tab ${activeTab === "password" ? "active-neutral" : ""}`}
+              onClick={() => setActiveTab("password")}
+              style={{ flex: 1, padding: "12px", fontSize: "0.9rem" }}
+            >
+              <Key size={16} style={{ marginRight: 6 }} />
+              Username/Password
+            </button>
+            <button
+              className={`tab ${activeTab === "google" ? "active-neutral" : ""}`}
+              onClick={() => setActiveTab("google")}
+              style={{ flex: 1, padding: "12px", fontSize: "0.9rem" }}
+            >
+              <Mail size={16} style={{ marginRight: 6 }} />
+              Google
+            </button>
+          </div>
+
+          {activeTab === "password" && (
+            <form onSubmit={handlePasswordLogin}>
+              <div style={{ marginBottom: 16 }}>
+                <label className="form-label">Username</label>
+                <div style={{ position: "relative" }}>
+                  <UserIcon
+                    size={16}
+                    style={{
+                      position: "absolute",
+                      left: 12,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      color: "var(--text-muted)",
+                    }}
+                  />
+                  <input
+                    className="form-input"
+                    style={{ paddingLeft: 40 }}
+                    placeholder="Enter your username"
+                    value={credentials.username}
+                    onChange={(e) => setCredentials({ ...credentials, username: e.target.value })}
+                    disabled={loading}
+                  />
+                </div>
+                {errors.username && <span className="form-error">{errors.username}</span>}
+              </div>
+
+              <div style={{ marginBottom: 24 }}>
+                <label className="form-label">Password</label>
+                <div style={{ position: "relative" }}>
+                  <Lock
+                    size={16}
+                    style={{
+                      position: "absolute",
+                      left: 12,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      color: "var(--text-muted)",
+                    }}
+                  />
+                  <input
+                    className="form-input"
+                    type="password"
+                    style={{ paddingLeft: 40 }}
+                    placeholder="Enter your password"
+                    value={credentials.password}
+                    onChange={(e) => setCredentials({ ...credentials, password: e.target.value })}
+                    disabled={loading}
+                  />
+                </div>
+                {errors.password && <span className="form-error">{errors.password}</span>}
+              </div>
+
+              <button
+                className="btn btn-primary-email btn-lg w-full"
+                type="submit"
+                disabled={loading}
+              >
+                {loading ? <span className="spinner" /> : <LogIn size={18} />}
+                {loading ? "Signing in..." : "Sign In"}
+              </button>
+            </form>
+          )}
+
+          {activeTab === "google" && (
+            <button
+              className="btn btn-lg w-full"
+              style={{
+                background: "white",
+                color: "var(--text-primary)",
+                border: "1px solid var(--border)",
+                marginBottom: 16,
+              }}
+              onClick={handleGoogleLogin}
+              disabled={loading}
+            >
+              {loading ? <span className="spinner spinner-dark" /> : <LogIn size={18} />}
+              {loading ? "Signing in..." : "Sign in with Google"}
+            </button>
+          )}
 
           <div style={{
             background: "var(--bg)",

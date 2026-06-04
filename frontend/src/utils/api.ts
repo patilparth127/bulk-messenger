@@ -12,6 +12,11 @@ import {
   AuthResponse,
   AppSettings,
   DelaySettings,
+  LoginCredentials,
+  CreateUserPayload,
+  UserRole,
+  AuthMethod,
+  ContactStatus,
 } from "../types";
 
 const BASE = "/api";
@@ -30,6 +35,9 @@ export const deleteContact = (id: string) =>
 
 export const deleteAllContacts = () =>
   api.delete("/contacts").then((r) => r.data);
+
+export const updateContactStatus = (id: string, status: ContactStatus) =>
+  api.patch<Contact>(`/contacts/${id}/status`, { status }).then((r) => r.data);
 
 // ─── Excel Upload ─────────────────────────────────────────────
 export const uploadExcel = (file: File) => {
@@ -69,18 +77,34 @@ export const getSmsCampaigns = () =>
 export const sendSmsCampaign = (payload: SendSmsPayload) =>
   api.post("/sms-campaigns/send", payload).then((r) => r.data);
 
-export const getAdbStatus = () =>
-  api.get<{ connected: boolean; device: string | null; message: string }>("/sms/adb-status").then((r) => r.data);
+export const getSmsGatewayStatus = () =>
+  api.get<{ connected: boolean; device: string | null; message: string }>("/sms/gateway-status").then((r) => r.data);
 
 // ─── Authentication ─────────────────────────────────────────────
+export const login = (credentials: LoginCredentials) =>
+  api.post<AuthResponse>("/auth/login", credentials).then((r) => r.data);
+
 export const googleLogin = (token: string) =>
-  api.post<AuthResponse>("/auth/google", { token }).then((r) => r.data);
+  api.post<AuthResponse>("/auth/google", { token, authMethod: AuthMethod.GOOGLE }).then((r) => r.data);
 
 export const getCurrentUser = () =>
   api.get<User>("/auth/me").then((r) => r.data);
 
 export const logout = () =>
   api.post("/auth/logout").then((r) => r.data);
+
+// ─── User Management (Admin only) ─────────────────────────────────
+export const getUsers = () =>
+  api.get<User[]>("/users").then((r) => r.data);
+
+export const createUser = (data: CreateUserPayload) =>
+  api.post<User>("/users", data).then((r) => r.data);
+
+export const updateUser = (id: string, data: Partial<CreateUserPayload>) =>
+  api.put<User>(`/users/${id}`, data).then((r) => r.data);
+
+export const deleteUser = (id: string) =>
+  api.delete(`/users/${id}`).then((r) => r.data);
 
 // ─── Settings ─────────────────────────────────────────────────────
 export const getSettings = () =>

@@ -13,6 +13,170 @@ const app = express();
 const PORT = 3200;
 const DB_PATH = path.join(__dirname, "db.json");
 
+// ─── WhatsApp Cloud API Configuration ───────────────────────────
+const WHATSAPP_CONFIG = {
+  accessToken: process.env.WHATSAPP_ACCESS_TOKEN || "",
+  phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || "",
+  wabaId: process.env.WHATSAPP_WABA_ID || "",
+  graphApiVersion: process.env.WHATSAPP_GRAPH_API_VERSION || "v20.0",
+  webhookVerifyToken: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || "",
+  webhookUrl: process.env.WHATSAPP_WEBHOOK_URL || "",
+};
+
+// ─── WhatsApp Cloud API Service Functions ───────────────────────
+async function sendWhatsAppCloudMessage(to, messageType, templateName, templateVariables, media, buttons, ctaUrl) {
+  try {
+    const apiUrl = `https://graph.facebook.com/${WHATSAPP_CONFIG.graphApiVersion}/${WHATSAPP_CONFIG.phoneNumberId}/messages`;
+    
+    let payload = {
+      messaging_product: "whatsapp",
+      to: to,
+      type: messageType === MessageType.INTERACTIVE_TEMPLATE ? "interactive" : messageType === MessageType.MEDIA_MESSAGE ? media?.type : "text",
+    };
+
+    if (messageType === MessageType.INTERACTIVE_TEMPLATE) {
+      // Interactive Template Message
+      payload.interactive = {
+        type: "template",
+        template: {
+          name: templateName,
+          language: { code: "en_US" },
+          components: [],
+        },
+      };
+
+      // Add header with media if provided
+      if (media && media.mediaId) {
+        payload.interactive.template.components.push({
+          type: "header",
+          parameters: [
+            {
+              type: media.type === MediaType.IMAGE ? "image" : media.type === MediaType.VIDEO ? "video" : "document",
+              [media.type === MediaType.IMAGE ? "image" : media.type === MediaType.VIDEO ? "video" : "document"]: {
+                id: media.mediaId,
+              },
+            },
+          ],
+        });
+      }
+
+      // Add body with variables
+      if (templateVariables) {
+        const bodyParams = Object.entries(templateVariables).map(([key, value]) => ({
+          type: "text",
+          text: value,
+        }));
+        payload.interactive.template.components.push({
+          type: "body",
+          parameters: bodyParams,
+        });
+      }
+
+      // Add buttons
+      if (buttons && buttons.length > 0) {
+        const buttonParams = buttons.map((btn, index) => {
+          if (btn.type === "QUICK_REPLY") {
+            return {
+              type: "quick_reply",
+              quick_reply: {
+                type: "quick_reply",
+                payload: btn.payload || `button_${index}`,
+              },
+            };
+          } else if (btn.type === "CTA_URL") {
+            return {
+              type: "action",
+              action: {
+                type: "open_url",
+                url: btn.url,
+              },
+            };
+          }
+        });
+        payload.interactive.template.components.push({
+          type: "button",
+          parameters: buttonParams,
+        });
+      }
+
+    } else if (messageType === MessageType.MEDIA_MESSAGE) {
+      // Media Message
+      payload[media.type] = {
+        link: media.url,
+        caption: media.caption || "",
+      };
+    }
+
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${WHATSAPP_CONFIG.accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error?.message || "WhatsApp Cloud API error");
+    }
+
+    return {
+      success: true,
+      messageId: result.messages?.[0]?.id,
+      data: result,
+    };
+  } catch (error) {
+    console.error("WhatsApp Cloud API Error:", error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
+async function uploadMediaToWhatsApp(mediaFile) {
+  try {
+    const apiUrl = `https://graph.facebook.com/${WHATSAPP_CONFIG.graphApiVersion}/${WHATSAPP_CONFIG.phoneNumberId}/media`;
+    
+    const formData = new FormData();
+    formData.append("file", mediaFile.buffer, {
+      filename: mediaFile.originalname,
+      contentType: mediaFile.mimetype,
+    });
+    formData.append("messaging_product", "whatsapp");
+    formData.append("type", mediaFile.mimetype.startsWith("image") ? MediaType.IMAGE : 
+                    mediaFile.mimetype.startsWith("video") ? MediaType.VIDEO : MediaType.DOCUMENT);
+
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${WHATSAPP_CONFIG.accessToken}`,
+      },
+      body: formData,
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error?.message || "Media upload error");
+    }
+
+    return {
+      success: true,
+      mediaId: result.id,
+      data: result,
+    };
+  } catch (error) {
+    console.error("Media Upload Error:", error);
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
 // ─── Middleware ───────────────────────────────────────────────
 app.use(cors());
 app.use(express.json());
@@ -24,6 +188,16 @@ const upload = multer({ storage: multer.memoryStorage() });
 const Gender = { MALE: "male", FEMALE: "female", OTHER: "other" };
 const SendStatus = { PENDING: "pending", SENT: "sent", FAILED: "failed" };
 const PortalType = { EMAIL: "email", WHATSAPP: "whatsapp" };
+const UserRole = { ADMIN: "admin", USER: "user", VIEWER: "viewer" };
+const AuthMethod = { GOOGLE: "google", USERNAME_PASSWORD: "username_password" };
+const ContactStatus = { ACTIVE: "active", INACTIVE: "inactive", DUMP: "dump" };
+
+// ─── SaaS Enums ───────────────────────────────────────────────
+const SubscriptionStatus = { ACTIVE: "active", EXPIRED: "expired", SUSPENDED: "suspended", TRIAL: "trial", PENDING: "pending" };
+const SubscriptionPlan = { FREE: "free", BASIC_MONTHLY: "basic_monthly", BASIC_YEARLY: "basic_yearly", PRO_MONTHLY: "pro_monthly", PRO_YEARLY: "pro_yearly", ENTERPRISE_MONTHLY: "enterprise_monthly", ENTERPRISE_YEARLY: "enterprise_yearly" };
+const ProductType = { SMS: "sms", EMAIL: "email", WHATSAPP: "whatsapp" };
+const MessageType = { INTERACTIVE_TEMPLATE: "interactive_template", MEDIA_MESSAGE: "media_message" };
+const MediaType = { IMAGE: "image", VIDEO: "video", DOCUMENT: "document", AUDIO: "audio" };
 
 // ─── DB Helpers ───────────────────────────────────────────────
 function readDB() {
@@ -49,6 +223,9 @@ function ensureDB() {
       sms_logs: [],
       users: [],
       settings: [],
+      companies: [],
+      subscriptions: [],
+      webhook_events: [],
     };
     writeDB(initialDB);
   } else {
@@ -63,6 +240,9 @@ function ensureDB() {
     db.sms_logs = db.sms_logs || [];
     db.users = db.users || [];
     db.settings = db.settings || [];
+    db.companies = db.companies || [];
+    db.subscriptions = db.subscriptions || [];
+    db.webhook_events = db.webhook_events || [];
     writeDB(db);
   }
 }
@@ -82,6 +262,44 @@ function requireAuth(req, res, next) {
 }
 
 // ─── Authentication Endpoints ───────────────────────────────────
+// POST /api/auth/login - Username/Password login
+app.post("/api/auth/login", (req, res) => {
+  const { username, password, authMethod } = req.body;
+  
+  if (authMethod === AuthMethod.USERNAME_PASSWORD) {
+    if (!username || !password) {
+      return res.status(400).json({ error: "Username and password are required" });
+    }
+
+    const db = readDB();
+    const user = db.users.find((u) => u.username === username);
+    
+    if (!user) {
+      return res.status(401).json({ error: "Invalid username or password" });
+    }
+
+    // In production, use bcrypt to compare hashed passwords
+    // For demo, we'll do simple comparison (NOT SECURE FOR PRODUCTION)
+    if (user.password !== password) {
+      return res.status(401).json({ error: "Invalid username or password" });
+    }
+
+    user.lastLoginAt = new Date().toISOString();
+    writeDB(db);
+
+    // Remove password from response
+    const { password: _, ...userWithoutPassword } = user;
+
+    res.json({
+      success: true,
+      user: userWithoutPassword,
+      token: "demo-jwt-token-" + uuidv4(), // In production, use real JWT
+    });
+  } else {
+    return res.status(400).json({ error: "Invalid auth method" });
+  }
+});
+
 // POST /api/auth/google
 app.post("/api/auth/google", (req, res) => {
   const { token } = req.body;
@@ -102,6 +320,8 @@ app.post("/api/auth/google", (req, res) => {
     name: "Demo User",
     picture: null,
     googleId: "demo-google-id",
+    role: UserRole.ADMIN,
+    authMethod: AuthMethod.GOOGLE,
     createdAt: new Date().toISOString(),
     lastLoginAt: new Date().toISOString(),
   };
@@ -117,9 +337,12 @@ app.post("/api/auth/google", (req, res) => {
     writeDB(db);
   }
 
+  // Remove password from response if exists
+  const { password: _, ...userWithoutPassword } = user;
+
   res.json({
     success: true,
-    user,
+    user: userWithoutPassword,
     token: "demo-jwt-token-" + uuidv4(), // In production, use real JWT
   });
 });
@@ -134,19 +357,386 @@ app.get("/api/auth/me", (req, res) => {
   // In production, verify JWT and extract user
   // For demo, return the authorized user
   const db = readDB();
-  const user = db.users.find((u) => u.email === AUTHORIZED_EMAIL);
+  const userEmail = authHeader.replace("Bearer ", "");
+  const user = db.users.find((u) => u.email === userEmail || u.username === userEmail);
   
   if (!user) {
     return res.status(404).json({ error: "User not found" });
   }
 
-  res.json(user);
+  // Remove password from response
+  const { password: _, ...userWithoutPassword } = user;
+
+  res.json(userWithoutPassword);
 });
 
 // POST /api/auth/logout
 app.post("/api/auth/logout", (req, res) => {
   // In production, invalidate JWT token
   res.json({ success: true, message: "Logged out successfully" });
+});
+
+// ─── User Management Endpoints (Admin only) ───────────────────────
+// GET /api/users
+app.get("/api/users", (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ error: "Authorization required" });
+  }
+
+  const db = readDB();
+  const requestingUser = db.users.find((u) => u.email === authHeader.replace("Bearer ", ""));
+  
+  if (!requestingUser || requestingUser.role !== UserRole.ADMIN) {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+
+  // Remove passwords from response
+  const usersWithoutPasswords = db.users.map(({ password: _, ...user }) => user);
+  res.json(usersWithoutPasswords);
+});
+
+// POST /api/users - Create new user (Admin only)
+app.post("/api/users", (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ error: "Authorization required" });
+  }
+
+  const db = readDB();
+  const requestingUser = db.users.find((u) => u.email === authHeader.replace("Bearer ", ""));
+  
+  if (!requestingUser || requestingUser.role !== UserRole.ADMIN) {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+
+  const { username, password, email, name, role } = req.body;
+
+  if (!username || !password || !email || !name) {
+    return res.status(400).json({ error: "Username, password, email, and name are required" });
+  }
+
+  // Check if username or email already exists
+  if (db.users.find((u) => u.username === username)) {
+    return res.status(400).json({ error: "Username already exists" });
+  }
+  if (db.users.find((u) => u.email === email)) {
+    return res.status(400).json({ error: "Email already exists" });
+  }
+
+  const newUser = {
+    id: uuidv4(),
+    username,
+    password, // In production, hash this with bcrypt
+    email: email.toLowerCase(),
+    name,
+    role: role || UserRole.USER,
+    authMethod: AuthMethod.USERNAME_PASSWORD,
+    createdAt: new Date().toISOString(),
+    lastLoginAt: new Date().toISOString(),
+  };
+
+  db.users.push(newUser);
+  writeDB(db);
+
+  // Remove password from response
+  const { password: _, ...userWithoutPassword } = newUser;
+
+  res.status(201).json(userWithoutPassword);
+});
+
+// PUT /api/users/:id - Update user (Admin only)
+app.put("/api/users/:id", (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ error: "Authorization required" });
+  }
+
+  const db = readDB();
+  const requestingUser = db.users.find((u) => u.email === authHeader.replace("Bearer ", ""));
+  
+  if (!requestingUser || requestingUser.role !== UserRole.ADMIN) {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+
+  const userId = req.params.id;
+  const userIndex = db.users.findIndex((u) => u.id === userId);
+
+  if (userIndex === -1) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  const { name, role, password } = req.body;
+
+  // Update user
+  if (name) db.users[userIndex].name = name;
+  if (role) db.users[userIndex].role = role;
+  if (password) db.users[userIndex].password = password; // In production, hash this
+
+  db.users[userIndex].updatedAt = new Date().toISOString();
+  writeDB(db);
+
+  // Remove password from response
+  const { password: _, ...userWithoutPassword } = db.users[userIndex];
+
+  res.json(userWithoutPassword);
+});
+
+// DELETE /api/users/:id - Delete user (Admin only)
+app.delete("/api/users/:id", (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ error: "Authorization required" });
+  }
+
+  const db = readDB();
+  const requestingUser = db.users.find((u) => u.email === authHeader.replace("Bearer ", ""));
+  
+  if (!requestingUser || requestingUser.role !== UserRole.ADMIN) {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+
+  const userId = req.params.id;
+
+  // Prevent deleting yourself
+  if (userId === requestingUser.id) {
+    return res.status(400).json({ error: "Cannot delete your own account" });
+  }
+
+  const userIndex = db.users.findIndex((u) => u.id === userId);
+
+  if (userIndex === -1) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  db.users.splice(userIndex, 1);
+  writeDB(db);
+
+  res.json({ success: true, message: "User deleted successfully" });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// COMPANY MANAGEMENT (SaaS Multi-Company Architecture)
+// ═══════════════════════════════════════════════════════════════
+
+// GET /api/companies
+app.get("/api/companies", (req, res) => {
+  const db = readDB();
+  res.json(db.companies || []);
+});
+
+// GET /api/companies/:id
+app.get("/api/companies/:id", (req, res) => {
+  const db = readDB();
+  const company = db.companies?.find((c) => c.id === req.params.id);
+  if (!company) {
+    return res.status(404).json({ error: "Company not found" });
+  }
+  res.json(company);
+});
+
+// POST /api/companies
+app.post("/api/companies", (req, res) => {
+  const { name, domain, contactEmail, contactPhone, address } = req.body;
+
+  if (!name || !contactEmail || !contactPhone) {
+    return res.status(400).json({ error: "Name, contact email, and contact phone are required" });
+  }
+
+  const db = readDB();
+  const company = {
+    id: uuidv4(),
+    name: String(name).trim(),
+    domain: domain ? String(domain).trim() : undefined,
+    contactEmail: String(contactEmail).trim().toLowerCase(),
+    contactPhone: String(contactPhone).trim(),
+    address: address || undefined,
+    isActive: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  db.companies = db.companies || [];
+  db.companies.push(company);
+  writeDB(db);
+
+  res.status(201).json(company);
+});
+
+// PUT /api/companies/:id
+app.put("/api/companies/:id", (req, res) => {
+  const { name, domain, contactEmail, contactPhone, address, isActive } = req.body;
+
+  const db = readDB();
+  const idx = db.companies?.findIndex((c) => c.id === req.params.id);
+
+  if (idx === -1) {
+    return res.status(404).json({ error: "Company not found" });
+  }
+
+  const company = db.companies[idx];
+  if (name) company.name = String(name).trim();
+  if (domain !== undefined) company.domain = domain ? String(domain).trim() : undefined;
+  if (contactEmail) company.contactEmail = String(contactEmail).trim().toLowerCase();
+  if (contactPhone) company.contactPhone = String(contactPhone).trim();
+  if (address !== undefined) company.address = address;
+  if (isActive !== undefined) company.isActive = isActive;
+  company.updatedAt = new Date().toISOString();
+
+  writeDB(db);
+  res.json(company);
+});
+
+// DELETE /api/companies/:id
+app.delete("/api/companies/:id", (req, res) => {
+  const db = readDB();
+  const idx = db.companies?.findIndex((c) => c.id === req.params.id);
+
+  if (idx === -1) {
+    return res.status(404).json({ error: "Company not found" });
+  }
+
+  db.companies.splice(idx, 1);
+  writeDB(db);
+  res.json({ success: true, message: "Company deleted successfully" });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// SUBSCRIPTION MANAGEMENT
+// ═══════════════════════════════════════════════════════════════
+
+// GET /api/subscriptions
+app.get("/api/subscriptions", (req, res) => {
+  const db = readDB();
+  res.json(db.subscriptions || []);
+});
+
+// GET /api/subscriptions/:id
+app.get("/api/subscriptions/:id", (req, res) => {
+  const db = readDB();
+  const subscription = db.subscriptions?.find((s) => s.id === req.params.id);
+  if (!subscription) {
+    return res.status(404).json({ error: "Subscription not found" });
+  }
+  res.json(subscription);
+});
+
+// GET /api/companies/:companyId/subscription
+app.get("/api/companies/:companyId/subscription", (req, res) => {
+  const db = readDB();
+  const subscription = db.subscriptions?.find((s) => s.companyId === req.params.companyId);
+  if (!subscription) {
+    return res.status(404).json({ error: "Subscription not found for this company" });
+  }
+  res.json(subscription);
+});
+
+// POST /api/subscriptions
+app.post("/api/subscriptions", (req, res) => {
+  const { companyId, plan, products, autoRenew } = req.body;
+
+  if (!companyId || !plan) {
+    return res.status(400).json({ error: "Company ID and plan are required" });
+  }
+
+  const db = readDB();
+  
+  // Check if company exists
+  const company = db.companies?.find((c) => c.id === companyId);
+  if (!company) {
+    return res.status(404).json({ error: "Company not found" });
+  }
+
+  // Calculate subscription dates based on plan
+  const startDate = new Date();
+  const endDate = new Date();
+  
+  if (plan.includes("yearly")) {
+    endDate.setFullYear(endDate.getFullYear() + 1);
+  } else {
+    endDate.setMonth(endDate.getMonth() + 1);
+  }
+
+  // Add trial period for non-free plans
+  let trialEndDate = undefined;
+  if (plan !== SubscriptionPlan.FREE) {
+    trialEndDate = new Date();
+    trialEndDate.setDate(trialEndDate.getDate() + 14); // 14-day trial
+  }
+
+  // Initialize product licenses
+  const productLicenses = [];
+  if (products && Array.isArray(products)) {
+    products.forEach((productType) => {
+      if (Object.values(ProductType).includes(productType)) {
+        productLicenses.push({
+          productType,
+          isEnabled: true,
+          usageLimit: plan.includes("enterprise") ? 100000 : plan.includes("pro") ? 10000 : 1000,
+          currentUsage: 0,
+          resetDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days
+        });
+      }
+    });
+  }
+
+  const subscription = {
+    id: uuidv4(),
+    companyId,
+    plan,
+    status: SubscriptionStatus.ACTIVE,
+    startDate: startDate.toISOString(),
+    endDate: endDate.toISOString(),
+    trialEndDate: trialEndDate?.toISOString(),
+    autoRenew: autoRenew !== undefined ? autoRenew : true,
+    products: productLicenses,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  db.subscriptions = db.subscriptions || [];
+  db.subscriptions.push(subscription);
+  writeDB(db);
+
+  res.status(201).json(subscription);
+});
+
+// PUT /api/subscriptions/:id
+app.put("/api/subscriptions/:id", (req, res) => {
+  const { plan, status, autoRenew, products } = req.body;
+
+  const db = readDB();
+  const idx = db.subscriptions?.findIndex((s) => s.id === req.params.id);
+
+  if (idx === -1) {
+    return res.status(404).json({ error: "Subscription not found" });
+  }
+
+  const subscription = db.subscriptions[idx];
+  if (plan) subscription.plan = plan;
+  if (status) subscription.status = status;
+  if (autoRenew !== undefined) subscription.autoRenew = autoRenew;
+  if (products) {
+    subscription.products = products;
+  }
+  subscription.updatedAt = new Date().toISOString();
+
+  writeDB(db);
+  res.json(subscription);
+});
+
+// DELETE /api/subscriptions/:id
+app.delete("/api/subscriptions/:id", (req, res) => {
+  const db = readDB();
+  const idx = db.subscriptions?.findIndex((s) => s.id === req.params.id);
+
+  if (idx === -1) {
+    return res.status(404).json({ error: "Subscription not found" });
+  }
+
+  db.subscriptions.splice(idx, 1);
+  writeDB(db);
+  res.json({ success: true, message: "Subscription deleted successfully" });
 });
 
 // ─── Settings Endpoints ─────────────────────────────────────────
@@ -381,6 +971,7 @@ app.post("/api/contacts", (req, res) => {
     email: String(email).trim().toLowerCase(),
     phone: phone ? String(phone).trim() : "",
     gender: gender || Gender.OTHER,
+    status: ContactStatus.ACTIVE,
     createdAt: new Date().toISOString(),
     emailSentCount: 0,
     whatsappSentCount: 0,
@@ -392,6 +983,26 @@ app.post("/api/contacts", (req, res) => {
   writeDB(db);
 
   res.status(201).json(contact);
+});
+
+// PATCH /api/contacts/:id/status - Update contact status
+app.patch("/api/contacts/:id/status", (req, res) => {
+  const { status } = req.body;
+  
+  if (!status || !Object.values(ContactStatus).includes(status)) {
+    return res.status(400).json({ error: "Invalid status. Must be active, inactive, or dump" });
+  }
+
+  const db = readDB();
+  const idx = db.contacts.findIndex((c) => c.id === req.params.id);
+
+  if (idx === -1) {
+    return res.status(404).json({ error: "Contact not found" });
+  }
+
+  db.contacts[idx].status = status;
+  writeDB(db);
+  res.json(db.contacts[idx]);
 });
 
 // DELETE /api/contacts/:id
@@ -494,6 +1105,7 @@ app.post("/api/upload-excel", upload.single("file"), (req, res) => {
         gender: Object.values(Gender).includes(String(gender).toLowerCase())
           ? String(gender).toLowerCase()
           : Gender.OTHER,
+        status: ContactStatus.ACTIVE,
         createdAt: new Date().toISOString(),
         emailSentCount: 0,
         whatsappSentCount: 0,
@@ -734,7 +1346,7 @@ app.get("/api/whatsapp-campaigns", (req, res) => {
 
 // POST /api/whatsapp-campaigns/send
 app.post("/api/whatsapp-campaigns/send", async (req, res) => {
-  const { message, contactIds } = req.body;
+  const { message, contactIds, hasReplyButtons, replyOptions } = req.body;
 
   if (!message || !contactIds?.length) {
     return res.status(400).json({ error: "message and contactIds are required" });
@@ -770,6 +1382,8 @@ app.post("/api/whatsapp-campaigns/send", async (req, res) => {
     createdAt: new Date().toISOString(),
     completedAt: null,
     logs: [],
+    hasReplyButtons: hasReplyButtons || false,
+    replyOptions: hasReplyButtons && replyOptions ? replyOptions : undefined,
   };
 
   db.whatsapp_campaigns.push(campaign);
@@ -873,57 +1487,83 @@ app.get("/api/upload-sessions", (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-//  SMS CAMPAIGNS — ADB (Android USB, Free, Your SIM)
+//  SMS CAMPAIGNS — HTTP API based SMS Gateway (SMSForwarder/Android)
 // ═══════════════════════════════════════════════════════════════
 
-const { execSync, exec } = require("child_process");
+// SMS Gateway Configuration - Update these to match your SMS gateway
+const SMS_GATEWAY_CONFIG = {
+  enabled: true,
+  apiUrl: process.env.SMS_GATEWAY_URL || "http://localhost:8080", // SMSForwarder default
+  apiKey: process.env.SMS_GATEWAY_API_KEY || "", // Optional API key if your gateway requires it
+  timeout: 10000, // 10 seconds timeout
+};
 
-// ── Helper: check ADB device connected ───────────────────────
-function getAdbDevice() {
+// ── Helper: send single SMS via HTTP API ─────────────────────
+async function sendSmsViaHttpApi(phone, message) {
   try {
-    const out = execSync('"C:\\adb\\adb.exe" devices', {
-      timeout: 5000,
-    }).toString();
+    // SMSForwarder API format (adjust based on your gateway)
+    const response = await fetch(`${SMS_GATEWAY_CONFIG.apiUrl}/send`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(SMS_GATEWAY_CONFIG.apiKey && { "X-API-Key": SMS_GATEWAY_CONFIG.apiKey }),
+      },
+      body: JSON.stringify({
+        to: phone,
+        message: message,
+      }),
+      signal: AbortSignal.timeout(SMS_GATEWAY_CONFIG.timeout),
+    });
 
-    const lines = out
-      .split("\n")
-      .filter((l) => l.includes("\tdevice"));
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`SMS Gateway error: ${response.status} - ${errorText}`);
+    }
 
-    return lines.length > 0
-      ? lines[0].split("\t")[0].trim()
-      : null;
+    const result = await response.json();
+    return {
+      success: true,
+      sid: result.sid || result.messageId || null,
+      data: result,
+    };
   } catch (err) {
-    console.error("ADB Error:", err.message);
-    return null;
+    console.error("SMS Gateway Error:", err.message);
+    return {
+      success: false,
+      error: err.message,
+    };
   }
 }
 
-// ── Helper: send single SMS via ADB ──────────────────────────
-const ADB = "C:\\adb\\adb.exe";
-
-function sendSmsViaAdb(phone, message) {
-  return new Promise((resolve) => {
-
-    const adb = `"C:\\adb\\adb.exe"`;
-
-    const cmd =
-      `${adb} shell am start ` +
-      `-a android.intent.action.SENDTO ` +
-      `-d sms:${phone} ` +
-      `--es sms_body "${message}"`;
-
-    exec(cmd, (err) => {
-      if (err) {
-        resolve({
-          success: false,
-          error: err.message,
-        });   
-        resolve({
-          success: true,
-        });
-      }
+// ── Helper: check SMS Gateway status ─────────────────────────
+async function checkSmsGatewayStatus() {
+  try {
+    const response = await fetch(`${SMS_GATEWAY_CONFIG.apiUrl}/status`, {
+      method: "GET",
+      headers: {
+        ...(SMS_GATEWAY_CONFIG.apiKey && { "X-API-Key": SMS_GATEWAY_CONFIG.apiKey }),
+      },
+      signal: AbortSignal.timeout(5000),
     });
-  });
+
+    if (!response.ok) {
+      throw new Error(`SMS Gateway not responding: ${response.status}`);
+    }
+
+    const result = await response.json();
+    return {
+      connected: true,
+      device: result.device || result.phone || "SMS Gateway",
+      message: "SMS Gateway is connected and ready",
+      details: result,
+    };
+  } catch (err) {
+    return {
+      connected: false,
+      device: null,
+      message: `SMS Gateway not reachable: ${err.message}. Please ensure your SMS gateway app (e.g., SMSForwarder) is running and accessible at ${SMS_GATEWAY_CONFIG.apiUrl}`,
+    };
+  }
 }
 
 // ── Helper: format phone to E.164 ────────────────────────────
@@ -935,14 +1575,10 @@ function formatPhone(phone) {
   return "+" + p;
 }
 
-// GET /api/sms/adb-status  — check if phone connected
-app.get("/api/sms/adb-status", (req, res) => {
-  const device = getAdbDevice();
-  res.json({
-    connected: !!device,
-    device: device || null,
-    message: device ? `Device connected: ${device}` : "No Android device found. Connect phone via USB with USB Debugging ON.",
-  });
+// GET /api/sms/gateway-status  — check if SMS gateway is connected
+app.get("/api/sms/gateway-status", async (req, res) => {
+  const status = await checkSmsGatewayStatus();
+  res.json(status);
 });
 
 // GET /api/sms-campaigns
@@ -968,11 +1604,11 @@ app.post("/api/sms-campaigns/send", async (req, res) => {
     return res.status(400).json({ error: "Select at least one contact" });
   }
 
-  // Check ADB device
-  const device = getAdbDevice();
-  if (!device) {
+  // Check SMS Gateway status
+  const gatewayStatus = await checkSmsGatewayStatus();
+  if (!gatewayStatus.connected) {
     return res.status(400).json({
-      error: "No Android device connected. Please connect your phone via USB and enable USB Debugging in Developer Options.",
+      error: gatewayStatus.message || "SMS Gateway not connected. Please ensure your SMS gateway app (e.g., SMSForwarder) is running.",
     });
   }
 
@@ -989,7 +1625,7 @@ app.post("/api/sms-campaigns/send", async (req, res) => {
   const campaign = {
     id: uuidv4(),
     template,
-    device,
+    device: gatewayStatus.device || "SMS Gateway",
     totalTargets: targets.length,
     sentCount: 0,
     failedCount: 0,
@@ -1035,11 +1671,12 @@ app.post("/api/sms-campaigns/send", async (req, res) => {
       error: null,
     };
 
-    const result = await sendSmsViaAdb(phone, message);
+    const result = await sendSmsViaHttpApi(phone, message);
 
     if (result.success) {
       log.status = "sent";
       log.sentAt = new Date().toISOString();
+      log.sid = result.sid || null;
 
       const dbNow = readDB();
       const c = dbNow.contacts.find((x) => x.id === contact.id);
@@ -1088,6 +1725,223 @@ app.post("/api/sms-campaigns/send", async (req, res) => {
     logs,
   });
 });
+
+// ═══════════════════════════════════════════════════════════════
+// WHATSAPP CLOUD API ENDPOINTS (Graph API v20.0)
+// ═══════════════════════════════════════════════════════════════
+
+// POST /api/whatsapp-cloud/send-message
+app.post("/api/whatsapp-cloud/send-message", async (req, res) => {
+  const { companyId, messageType, recipients, templateName, templateVariables, media, buttons, ctaUrl } = req.body;
+
+  if (!companyId || !messageType || !recipients || !Array.isArray(recipients)) {
+    return res.status(400).json({ error: "companyId, messageType, and recipients array are required" });
+  }
+
+  // Check if company has WhatsApp subscription
+  const db = readDB();
+  const subscription = db.subscriptions?.find((s) => s.companyId === companyId);
+  if (!subscription) {
+    return res.status(403).json({ error: "No subscription found for this company" });
+  }
+
+  const whatsappLicense = subscription.products?.find((p) => p.productType === ProductType.WHATSAPP);
+  if (!whatsappLicense || !whatsappLicense.isEnabled) {
+    return res.status(403).json({ error: "WhatsApp module not enabled for this company" });
+  }
+
+  // Check usage limit
+  if (whatsappLicense.currentUsage >= whatsappLicense.usageLimit) {
+    return res.status(429).json({ error: "WhatsApp usage limit exceeded" });
+  }
+
+  const results = [];
+  let successCount = 0;
+  let failedCount = 0;
+
+  for (const recipient of recipients) {
+    const result = await sendWhatsAppCloudMessage(
+      recipient,
+      messageType,
+      templateName,
+      templateVariables,
+      media,
+      buttons,
+      ctaUrl
+    );
+
+    if (result.success) {
+      successCount++;
+      // Update usage
+      whatsappLicense.currentUsage++;
+    } else {
+      failedCount++;
+    }
+
+    results.push({
+      recipient,
+      success: result.success,
+      messageId: result.messageId,
+      error: result.error,
+    });
+
+    // Small delay to avoid rate limiting
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+
+  // Update subscription in DB
+  const subIdx = db.subscriptions.findIndex((s) => s.id === subscription.id);
+  if (subIdx !== -1) {
+    db.subscriptions[subIdx].products = subscription.products;
+    db.subscriptions[subIdx].updatedAt = new Date().toISOString();
+    writeDB(db);
+  }
+
+  res.json({
+    success: true,
+    totalRecipients: recipients.length,
+    sentCount: successCount,
+    failedCount,
+    results,
+  });
+});
+
+// POST /api/whatsapp-cloud/upload-media
+app.post("/api/whatsapp-cloud/upload-media", upload.single("media"), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "Media file is required" });
+  }
+
+  const result = await uploadMediaToWhatsApp(req.file);
+
+  if (result.success) {
+    res.json({
+      success: true,
+      mediaId: result.mediaId,
+      data: result.data,
+    });
+  } else {
+    res.status(500).json({
+      success: false,
+      error: result.error,
+    });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// WHATSAPP WEBHOOK SYSTEM
+// ═══════════════════════════════════════════════════════════════
+
+// GET /api/whatsapp-webhook - Meta verification
+app.get("/api/whatsapp-webhook", (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+
+  if (mode === "subscribe" && token === WHATSAPP_CONFIG.webhookVerifyToken) {
+    console.log("Webhook verified successfully");
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
+  }
+});
+
+// POST /api/whatsapp-webhook - Event receiver
+app.post("/api/whatsapp-webhook", async (req, res) => {
+  try {
+    const webhookEvent = req.body;
+
+    // Store webhook event for processing
+    const db = readDB();
+    const event = {
+      id: uuidv4(),
+      event: webhookEvent,
+      receivedAt: new Date().toISOString(),
+      processed: false,
+    };
+
+    db.webhook_events = db.webhook_events || [];
+    db.webhook_events.push(event);
+    writeDB(db);
+
+    console.log("Webhook event received:", JSON.stringify(webhookEvent, null, 2));
+
+    // Process messages and button clicks
+    if (webhookEvent.entry && webhookEvent.entry[0]?.changes) {
+      for (const change of webhookEvent.entry[0].changes) {
+        if (change.field === "messages" && change.value?.messages) {
+          for (const message of change.value.messages) {
+            // Handle button clicks
+            if (message.interactive?.button_reply) {
+              console.log("Button clicked:", message.interactive.button_reply);
+              // Trigger automated follow-up flow based on payload
+              await handleButtonReply(message, change.value.metadata.phone_number_id);
+            }
+            // Handle list replies
+            else if (message.interactive?.list_reply) {
+              console.log("List item selected:", message.interactive.list_reply);
+              await handleListReply(message, change.value.metadata.phone_number_id);
+            }
+            // Handle text messages
+            else if (message.text) {
+              console.log("Text message received:", message.text.body);
+              await handleTextMessage(message, change.value.metadata.phone_number_id);
+            }
+          }
+        }
+        // Handle message status updates
+        else if (change.field === "messages" && change.value?.statuses) {
+          for (const status of change.value.statuses) {
+            console.log("Message status update:", status.status, "for message:", status.id);
+            await updateMessageStatus(status);
+          }
+        }
+      }
+    }
+
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error("Webhook processing error:", error);
+    res.status(500).json({ error: "Webhook processing failed" });
+  }
+});
+
+// ─── Webhook Handler Functions ───────────────────────────────────
+async function handleButtonReply(message, phoneNumberId) {
+  const db = readDB();
+  const { from, interactive } = message;
+  const { payload, title } = interactive.button_reply;
+
+  // Store or process the button reply
+  console.log(`Button reply from ${from}: ${title} (payload: ${payload})`);
+
+  // You can trigger automated follow-up flows here based on payload
+  // Example: if payload === "interested", send follow-up message
+}
+
+async function handleListReply(message, phoneNumberId) {
+  const db = readDB();
+  const { from, interactive } = message;
+  const { id, title } = interactive.list_reply;
+
+  console.log(`List reply from ${from}: ${title} (id: ${id})`);
+}
+
+async function handleTextMessage(message, phoneNumberId) {
+  const db = readDB();
+  const { from, text } = message;
+
+  console.log(`Text message from ${from}: ${text.body}`);
+}
+
+async function updateMessageStatus(status) {
+  const db = readDB();
+  const { id: messageId, status: messageStatus, recipient_id } = status;
+
+  // Update campaign log status based on WhatsApp message status
+  // This would require mapping WhatsApp message IDs to campaign log IDs
+  console.log(`Message ${messageId} status updated to ${messageStatus} for recipient ${recipient_id}`);
+}
 
 // ─── Health ──────────────────────────────────────────────────
 app.get("/api/health", (req, res) => {

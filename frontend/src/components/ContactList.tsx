@@ -12,10 +12,13 @@ import {
   Check,
   X,
   Shield,
+  Circle,
+  Pause,
+  Ban,
 } from "lucide-react";
 import toast from "react-hot-toast";
-import { Contact, Gender } from "../types";
-import { createContact, deleteContact, deleteAllContacts, uploadExcel } from "../utils/api";
+import { Contact, Gender, ContactStatus } from "../types";
+import { createContact, deleteContact, deleteAllContacts, uploadExcel, updateContactStatus } from "../utils/api";
 import { formatDate, formatPhone, genderLabel } from "../utils/helpers";
 import TableControls, { Column, SortConfig, FilterConfig, PaginationConfig } from "./TableControls";
 
@@ -74,6 +77,18 @@ export default function ContactList({ contacts, onRefresh }: Props) {
         { value: "female", label: "Female" },
         { value: "other", label: "Other" },
       ]
+    },
+    {
+      key: "status",
+      label: "Status",
+      sortable: true,
+      filterable: true,
+      filterType: "select",
+      filterOptions: [
+        { value: ContactStatus.ACTIVE, label: "Active" },
+        { value: ContactStatus.INACTIVE, label: "Inactive" },
+        { value: ContactStatus.DUMP, label: "Dump" },
+      ],
     },
     { key: "emailSentCount", label: "Email Sent", sortable: true },
     { key: "whatsappSentCount", label: "WA Sent", sortable: true },
@@ -175,14 +190,13 @@ export default function ContactList({ contacts, onRefresh }: Props) {
     }
   };
 
-  const handleDelete = async (id: string, name: string) => {
-    if (!window.confirm(`Delete ${name}?`)) return;
+  const handleStatusChange = async (id: string, status: ContactStatus, name: string) => {
     try {
-      await deleteContact(id);
-      toast.success("Contact deleted");
+      await updateContactStatus(id, status);
+      toast.success(`Contact status updated to ${status}`);
       onRefresh();
     } catch {
-      toast.error("Failed to delete");
+      toast.error("Failed to update contact status");
     }
   };
 
@@ -465,12 +479,12 @@ export default function ContactList({ contacts, onRefresh }: Props) {
                   <th>Email</th>
                   <th>Phone</th>
                   <th>Gender</th>
+                  <th>Status</th>
                   <th>Email Sent</th>
                   <th>Last Email</th>
                   <th>WA Sent</th>
                   <th>Last WA</th>
                   <th>Added</th>
-                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -496,6 +510,52 @@ export default function ContactList({ contacts, onRefresh }: Props) {
                       </span>
                     </td>
                     <td>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        <button
+                          className={`btn btn-ghost btn-sm ${c.status === ContactStatus.ACTIVE ? "active-neutral" : ""}`}
+                          onClick={() => handleStatusChange(c.id, ContactStatus.ACTIVE, c.name)}
+                          title="Set to Active"
+                          style={{
+                            padding: "4px 8px",
+                            fontSize: "0.75rem",
+                            background: c.status === ContactStatus.ACTIVE ? "var(--accent-email)" : "transparent",
+                            color: c.status === ContactStatus.ACTIVE ? "white" : "var(--text-muted)",
+                            border: c.status === ContactStatus.ACTIVE ? "none" : "1px solid var(--border)",
+                          }}
+                        >
+                          <Circle size={12} fill={c.status === ContactStatus.ACTIVE ? "currentColor" : "none"} />
+                        </button>
+                        <button
+                          className={`btn btn-ghost btn-sm ${c.status === ContactStatus.INACTIVE ? "active-neutral" : ""}`}
+                          onClick={() => handleStatusChange(c.id, ContactStatus.INACTIVE, c.name)}
+                          title="Set to Inactive"
+                          style={{
+                            padding: "4px 8px",
+                            fontSize: "0.75rem",
+                            background: c.status === ContactStatus.INACTIVE ? "#f59e0b" : "transparent",
+                            color: c.status === ContactStatus.INACTIVE ? "white" : "var(--text-muted)",
+                            border: c.status === ContactStatus.INACTIVE ? "none" : "1px solid var(--border)",
+                          }}
+                        >
+                          <Pause size={12} fill={c.status === ContactStatus.INACTIVE ? "currentColor" : "none"} />
+                        </button>
+                        <button
+                          className={`btn btn-ghost btn-sm ${c.status === ContactStatus.DUMP ? "active-neutral" : ""}`}
+                          onClick={() => handleStatusChange(c.id, ContactStatus.DUMP, c.name)}
+                          title="Set to Dump"
+                          style={{
+                            padding: "4px 8px",
+                            fontSize: "0.75rem",
+                            background: c.status === ContactStatus.DUMP ? "var(--accent-danger)" : "transparent",
+                            color: c.status === ContactStatus.DUMP ? "white" : "var(--text-muted)",
+                            border: c.status === ContactStatus.DUMP ? "none" : "1px solid var(--border)",
+                          }}
+                        >
+                          <Ban size={12} fill={c.status === ContactStatus.DUMP ? "currentColor" : "none"} />
+                        </button>
+                      </div>
+                    </td>
+                    <td>
                       <span style={{ fontWeight: 700, color: c.emailSentCount > 0 ? "var(--accent-email)" : "var(--text-muted)" }}>
                         {c.emailSentCount}×
                       </span>
@@ -508,15 +568,6 @@ export default function ContactList({ contacts, onRefresh }: Props) {
                     </td>
                     <td className="text-sm text-muted">{formatDate(c.lastWhatsappSentAt)}</td>
                     <td className="text-sm text-muted">{formatDate(c.createdAt)}</td>
-                    <td>
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        style={{ color: "var(--accent-danger)" }}
-                        onClick={() => handleDelete(c.id, c.name)}
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </td>
                   </tr>
                 ))}
               </tbody>

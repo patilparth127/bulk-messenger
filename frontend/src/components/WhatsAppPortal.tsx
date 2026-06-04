@@ -21,6 +21,11 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
   const [msgError, setMsgError] = useState("");
   const [contactError, setContactError] = useState("");
   
+  // Reply buttons simulation
+  const [hasReplyButtons, setHasReplyButtons] = useState(false);
+  const [customReplyOptions, setCustomReplyOptions] = useState("");
+  const [replyOptions, setReplyOptions] = useState<string[]>(["Interested", "Not Interested"]);
+  
   // Table controls for campaign history
   const [historySearch, setHistorySearch] = useState("");
   const [historySortConfig, setHistorySortConfig] = useState<SortConfig<WhatsAppCampaign>>({ key: null, direction: null });
@@ -121,17 +126,29 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
     else setContactError("");
     if (!valid) return;
 
+    // Build final message with reply options if enabled
+    let finalMessage = message;
+    if (hasReplyButtons && replyOptions.length > 0) {
+      const replyText = replyOptions.map((opt, i) => `${i + 1}. ${opt}`).join("\n");
+      finalMessage = `${message}\n\nPlease reply with:\n${replyText}`;
+    }
+
     setSending(true);
     const tid = toast.loading(`Sending WhatsApp to ${selectedIds.size} contacts…`);
     try {
       const result = await sendWhatsAppCampaign({
-        message,
+        message: finalMessage,
         contactIds: Array.from(selectedIds),
+        hasReplyButtons,
+        replyOptions: hasReplyButtons ? replyOptions : undefined,
       });
       toast.dismiss(tid);
       toast.success(`✅ Sent: ${result.sentCount}  ❌ Failed: ${result.failedCount}`);
       setMessage("");
       setSelectedIds(new Set());
+      setHasReplyButtons(false);
+      setCustomReplyOptions("");
+      setReplyOptions(["Interested", "Not Interested"]);
       onRefresh();
       setActiveTab("history");
     } catch (err: any) {
@@ -229,6 +246,52 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
                   onChange={(e) => setMessage(e.target.value)}
                 />
                 {msgError && <span className="form-error">{msgError}</span>}
+              </div>
+
+              {/* Reply Buttons Simulation */}
+              <div style={{
+                background: "var(--bg)",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius)",
+                padding: "16px",
+                marginBottom: 16,
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <input
+                    type="checkbox"
+                    id="reply-buttons"
+                    checked={hasReplyButtons}
+                    onChange={(e) => setHasReplyButtons(e.target.checked)}
+                    style={{ width: 18, height: 18 }}
+                  />
+                  <label htmlFor="reply-buttons" style={{ fontWeight: 600, fontSize: "0.9rem", cursor: "pointer" }}>
+                    Enable Reply Buttons (Simulated)
+                  </label>
+                </div>
+                <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: 12 }}>
+                  Adds reply options to your message. Recipients can reply with the numbered options.
+                </p>
+                {hasReplyButtons && (
+                  <div>
+                    <label className="form-label" style={{ fontSize: "0.85rem" }}>
+                      Reply Options (comma-separated)
+                    </label>
+                    <input
+                      className="form-input"
+                      placeholder="Interested, Not Interested"
+                      value={customReplyOptions}
+                      onChange={(e) => {
+                        setCustomReplyOptions(e.target.value);
+                        const opts = e.target.value.split(",").map(s => s.trim()).filter(s => s);
+                        setReplyOptions(opts.length > 0 ? opts : ["Interested", "Not Interested"]);
+                      }}
+                      style={{ fontSize: "0.85rem" }}
+                    />
+                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 4 }}>
+                      Example: "Interested, Not Interested, Maybe"
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Preview */}

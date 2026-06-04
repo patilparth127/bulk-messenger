@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Send, ChevronDown, ChevronUp, Smartphone, RefreshCw, AlertCircle, CheckCircle } from "lucide-react";
 import toast from "react-hot-toast";
 import { Contact, SmsCampaign, SendStatus } from "../types";
-import { sendSmsCampaign, getAdbStatus } from "../utils/api";
+import { sendSmsCampaign, getSmsGatewayStatus } from "../utils/api";
 import { formatDate, formatPhone } from "../utils/helpers";
+import TableControls, { Column, SortConfig, FilterConfig, PaginationConfig } from "./TableControls";
 
 interface Props {
   contacts: Contact[];
@@ -45,15 +46,91 @@ export default function SmsPortal({ contacts, campaigns, onRefresh }: Props) {
   const [sending, setSending] = useState(false);
   const [template, setTemplate] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [adbStatus, setAdbStatus] = useState<{ connected: boolean; device: string | null; message: string } | null>(null);
-  const [checkingAdb, setCheckingAdb] = useState(false);
+  const [gatewayStatus, setGatewayStatus] = useState<{ connected: boolean; device: string | null; message: string } | null>(null);
+  const [checkingGateway, setCheckingGateway] = useState(false);
   const [previewContact, setPreviewContact] = useState<Contact | null>(null);
+  
+  // Table controls for campaign history
+  const [historySearch, setHistorySearch] = useState("");
+  const [historySortConfig, setHistorySortConfig] = useState<SortConfig<SmsCampaign>>({ key: null, direction: null });
+  const [historyFilterConfig, setHistoryFilterConfig] = useState<FilterConfig>({});
+  const [historyPagination, setHistoryPagination] = useState<PaginationConfig>({ page: 1, pageSize: 10, total: 0 });
 
   const phoneContacts = contacts.filter((c) => c.phone);
 
-  // Check ADB on mount
+  // Columns for campaign history
+  const historyColumns: Column<SmsCampaign>[] = [
+    { key: "template", label: "Template", sortable: true, filterable: true, filterType: "text" },
+    { key: "createdAt", label: "Created", sortable: true },
+    { key: "status", label: "Status", sortable: true },
+  ];
+
+  // Apply filtering, search, and sorting to campaigns
+  const filteredAndSortedCampaigns = useMemo(() => {
+    let result = [...campaigns];
+
+    // Apply search
+    if (historySearch) {
+      result = result.filter(
+        (c) =>
+          c.template.toLowerCase().includes(historySearch.toLowerCase())
+      );
+    }
+
+    // Apply filters
+    Object.entries(historyFilterConfig).forEach(([key, value]) => {
+      if (value) {
+        result = result.filter((c) => {
+          const campaignValue = String(c[key as keyof SmsCampaign]).toLowerCase();
+          return campaignValue.includes(String(value).toLowerCase());
+        });
+      }
+    });
+
+    // Apply sorting
+    if (historySortConfig.key && historySortConfig.direction) {
+      result.sort((a, b) => {
+        const aVal = a[historySortConfig.key!];
+        const bVal = b[historySortConfig.key!];
+        
+        if (typeof aVal === "number" && typeof bVal === "number") {
+          return historySortConfig.direction === "asc" ? aVal - bVal : bVal - aVal;
+        }
+        
+        const aStr = String(aVal || "").toLowerCase();
+        const bStr = String(bVal || "").toLowerCase();
+        
+        if (historySortConfig.direction === "asc") {
+          return aStr.localeCompare(bStr);
+        } else {
+          return bStr.localeCompare(aStr);
+        }
+      });
+    }
+
+    return result;
+  }, [campaigns, historySearch, historyFilterConfig, historySortConfig]);
+
+  // Apply pagination
+  const paginatedCampaigns = useMemo(() => {
+    const start = (historyPagination.page - 1) * historyPagination.pageSize;
+    const end = start + historyPagination.pageSize;
+    return filteredAndSortedCampaigns.slice(start, end);
+  }, [filteredAndSortedCampaigns, historyPagination.page, historyPagination.pageSize]);
+
+  // Update pagination total
+  React.useEffect(() => {
+    setHistoryPagination((prev) => ({ ...prev, total: filteredAndSortedCampaigns.length }));
+  }, [filteredAndSortedCampaigns.length]);
+
+  // Reset page when filters change
+  React.useEffect(() => {
+    setHistoryPagination((prev) => ({ ...prev, page: 1 }));
+  }, [historySearch, historyFilterConfig, historySortConfig]);
+
+  // Check SMS Gateway on mount
   useEffect(() => {
-    checkAdb();
+    checkGateway();
   }, []);
 
   // Set first contact as preview
@@ -63,15 +140,15 @@ export default function SmsPortal({ contacts, campaigns, onRefresh }: Props) {
     }
   }, [contacts]);
 
-  const checkAdb = async () => {
-    setCheckingAdb(true);
+  const checkGateway = async () => {
+    setCheckingGateway(true);
     try {
-      const status = await getAdbStatus();
-      setAdbStatus(status);
+      const status = await getSmsGatewayStatus();
+      setGatewayStatus(status);
     } catch {
-      setAdbStatus({ connected: false, device: null, message: "Could not reach backend. Is server running?" });
+      setGatewayStatus({ connected: false, device: null, message: "Could not reach backend. Is server running?" });
     } finally {
-      setCheckingAdb(false);
+      setCheckingGateway(false);
     }
   };
 
@@ -103,7 +180,7 @@ export default function SmsPortal({ contacts, campaigns, onRefresh }: Props) {
     if (!template.trim()) e.template = "Message template is required";
     if (template.length > 160) e.template = `Message too long (${template.length}/160 chars for single SMS)`;
     if (selectedIds.size === 0) e.contacts = "Select at least one contact";
-    if (!adbStatus?.connected) e.adb = "Android device not connected";
+    if (!gatewayStatus?.connected) e.gateway = "SMS Gateway not connected";
     return e;
   };
 
@@ -133,9 +210,6 @@ export default function SmsPortal({ contacts, campaigns, onRefresh }: Props) {
     }
   };
 
-  const sortedCampaigns = [...campaigns].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
 
   const charCount = template.length;
   const smsCount = Math.ceil(charCount / 160) || 1;
@@ -157,12 +231,12 @@ export default function SmsPortal({ contacts, campaigns, onRefresh }: Props) {
         gap: 12,
         padding: "12px 16px",
         borderRadius: "var(--radius)",
-        border: `1px solid ${adbStatus?.connected ? "var(--accent-wa-border)" : "#fecaca"}`,
-        background: adbStatus?.connected ? "var(--accent-wa-light)" : "#fef2f2",
+        border: `1px solid ${gatewayStatus?.connected ? "var(--accent-wa-border)" : "#fecaca"}`,
+        background: gatewayStatus?.connected ? "var(--accent-wa-light)" : "#fef2f2",
         marginBottom: 20,
         flexWrap: "wrap",
       }}>
-        {adbStatus?.connected
+        {gatewayStatus?.connected
           ? <CheckCircle size={18} color="var(--accent-wa)" />
           : <AlertCircle size={18} color="var(--accent-danger)" />
         }
@@ -170,35 +244,34 @@ export default function SmsPortal({ contacts, campaigns, onRefresh }: Props) {
           <span style={{
             fontWeight: 700,
             fontSize: "0.875rem",
-            color: adbStatus?.connected ? "var(--accent-wa)" : "var(--accent-danger)",
+            color: gatewayStatus?.connected ? "var(--accent-wa)" : "var(--accent-danger)",
           }}>
-            {adbStatus?.connected ? `Phone Connected: ${adbStatus.device}` : "Phone Not Connected"}
+            {gatewayStatus?.connected ? `Phone Connected: ${gatewayStatus.device}` : "Phone Not Connected"}
           </span>
           <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: 2 }}>
-            {adbStatus?.message || "Checking…"}
+            {gatewayStatus?.message || "Checking…"}
           </div>
         </div>
-        <button className="btn btn-secondary btn-sm" onClick={checkAdb} disabled={checkingAdb}>
-          <RefreshCw size={13} className={checkingAdb ? "spin" : ""} />
-          {checkingAdb ? "Checking…" : "Re-check"}
+        <button className="btn btn-secondary btn-sm" onClick={checkGateway} disabled={checkingGateway}>
+          <RefreshCw size={13} className={checkingGateway ? "spin" : ""} />
+          {checkingGateway ? "Checking…" : "Re-check"}
         </button>
       </div>
 
       {/* Setup Guide (show when not connected) */}
-      {!adbStatus?.connected && (
+      {!gatewayStatus?.connected && (
         <div className="card" style={{ marginBottom: 20, borderColor: "#fecaca" }}>
           <div className="card-header" style={{ background: "#fff5f5" }}>
-            <h3>📋 Setup Guide — How to Connect Your Android Phone</h3>
+            <h3>📋 Setup Guide — How to Connect SMS Gateway</h3>
           </div>
           <div className="card-body">
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 16 }}>
               {[
-                { step: "1", title: "Enable Developer Options", desc: "Go to Settings → About Phone → tap Build Number 7 times" },
-                { step: "2", title: "Enable USB Debugging", desc: "Settings → Developer Options → Turn ON USB Debugging" },
-                { step: "3", title: "Connect via USB", desc: "Connect your Android phone to PC with USB cable. Select 'File Transfer' mode" },
-                { step: "4", title: "Install ADB on PC", desc: "Download Android Platform Tools from developer.android.com/tools and add to PATH" },
-                { step: "5", title: "Authorize PC", desc: "A popup will appear on your phone — tap 'Allow USB Debugging'" },
-                { step: "6", title: "Verify", desc: 'Run "adb devices" in terminal — your device should show as "device"' },
+                { step: "1", title: "Install SMS Gateway App", desc: "Install SMSForwarder or similar HTTP SMS gateway app on your Android phone" },
+                { step: "2", title: "Configure Gateway", desc: "Open the app and enable HTTP API server. Note the port (default: 8080)" },
+                { step: "3", title: "Set API URL", desc: "Configure SMS_GATEWAY_URL in backend .env file (default: http://localhost:8080)" },
+                { step: "4", title: "Test Connection", desc: "Click 'Re-check' button to verify the gateway is accessible" },
+                { step: "5", title: "Optional API Key", desc: "If your gateway requires authentication, set SMS_GATEWAY_API_KEY in .env" },
               ].map((s) => (
                 <div key={s.step} style={{
                   background: "var(--bg)",
@@ -369,24 +442,24 @@ export default function SmsPortal({ contacts, campaigns, onRefresh }: Props) {
                 </div>
 
                 {errors.contacts && <span className="form-error">⚠ {errors.contacts}</span>}
-                {errors.adb && <span className="form-error">⚠ {errors.adb}</span>}
+                {errors.gateway && <span className="form-error">⚠ {errors.gateway}</span>}
 
                 <button
                   className="btn btn-lg w-full"
                   style={{
-                    background: adbStatus?.connected ? "#7c3aed" : "var(--border)",
-                    color: adbStatus?.connected ? "white" : "var(--text-muted)",
-                    borderColor: adbStatus?.connected ? "#7c3aed" : "var(--border)",
-                    cursor: adbStatus?.connected ? "pointer" : "not-allowed",
+                    background: gatewayStatus?.connected ? "#7c3aed" : "var(--border)",
+                    color: gatewayStatus?.connected ? "white" : "var(--text-muted)",
+                    borderColor: gatewayStatus?.connected ? "#7c3aed" : "var(--border)",
+                    cursor: gatewayStatus?.connected ? "pointer" : "not-allowed",
                   }}
                   onClick={handleSend}
-                  disabled={sending || !adbStatus?.connected}
+                  disabled={sending || !gatewayStatus?.connected}
                 >
                   {sending ? <span className="spinner" /> : <Send size={16} />}
                   {sending
                     ? `Sending… (this may take a while)`
-                    : adbStatus?.connected
-                    ? `Send to ${selectedIds.size} Contact${selectedIds.size !== 1 ? "s" : ""} via ${adbStatus.device}`
+                    : gatewayStatus?.connected
+                    ? `Send to ${selectedIds.size} Contact${selectedIds.size !== 1 ? "s" : ""} via ${gatewayStatus.device}`
                     : "Connect Android Phone First"
                   }
                 </button>
@@ -505,7 +578,7 @@ export default function SmsPortal({ contacts, campaigns, onRefresh }: Props) {
       {/* History Tab */}
       {activeTab === "history" && (
         <div>
-          {sortedCampaigns.length === 0 ? (
+          {paginatedCampaigns.length === 0 ? (
             <div className="empty-state">
               <div className="empty-icon">📱</div>
               <h3>No SMS campaigns yet</h3>
@@ -513,7 +586,22 @@ export default function SmsPortal({ contacts, campaigns, onRefresh }: Props) {
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {sortedCampaigns.map((camp) => {
+              <TableControls
+                columns={historyColumns}
+                sortConfig={historySortConfig}
+                onSort={(key) => setHistorySortConfig({
+                  key,
+                  direction: historySortConfig.key === key && historySortConfig.direction === "asc" ? "desc" : "asc",
+                })}
+                filterConfig={historyFilterConfig}
+                onFilterChange={(key, value) => setHistoryFilterConfig({ ...historyFilterConfig, [key]: value })}
+                searchQuery={historySearch}
+                onSearchChange={setHistorySearch}
+                pagination={historyPagination}
+                onPageChange={(page) => setHistoryPagination({ ...historyPagination, page })}
+                onPageSizeChange={(pageSize) => setHistoryPagination({ ...historyPagination, pageSize, page: 1 })}
+              />
+              {paginatedCampaigns.map((camp) => {
                 const pct = camp.totalTargets > 0 ? Math.round((camp.sentCount / camp.totalTargets) * 100) : 0;
                 const isOpen = expandedCamp === camp.id;
                 return (
