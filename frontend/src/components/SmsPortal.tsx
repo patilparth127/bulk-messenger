@@ -683,6 +683,17 @@ export default function SmsPortal({ contacts, campaigns, onRefresh }: Props) {
           )}
         </div>
       )}
+      
+      <RenewalPopup
+        isOpen={showRenewalPopup}
+        onClose={() => setShowRenewalPopup(false)}
+        error={renewalError}
+        code={renewalCode}
+        onRenew={() => {
+          setShowRenewalPopup(false);
+          toast.success("Redirecting to subscription page...");
+        }}
+      />
     </div>
   );
 }
