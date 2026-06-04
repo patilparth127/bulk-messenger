@@ -30,8 +30,9 @@ import SmsPortal from "./components/SmsPortal";
 import Settings from "./components/Settings";
 import Login from "./components/Login";
 import UserManagement from "./components/UserManagement";
+import AdminDashboard from "./components/AdminDashboard";
 
-type Page = "dashboard" | "contacts" | "email" | "whatsapp" | "sms" | "settings" | "users";
+type Page = "dashboard" | "contacts" | "email" | "whatsapp" | "sms" | "settings" | "users" | "admin";
 
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
