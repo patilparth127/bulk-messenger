@@ -45,6 +45,10 @@ function ensureDB() {
       email_logs: [],
       whatsapp_campaigns: [],
       whatsapp_logs: [],
+      sms_campaigns: [],
+      sms_logs: [],
+      users: [],
+      settings: [],
     };
     writeDB(initialDB);
   } else {
@@ -55,10 +59,189 @@ function ensureDB() {
     db.email_logs = db.email_logs || [];
     db.whatsapp_campaigns = db.whatsapp_campaigns || [];
     db.whatsapp_logs = db.whatsapp_logs || [];
+    db.sms_campaigns = db.sms_campaigns || [];
+    db.sms_logs = db.sms_logs || [];
+    db.users = db.users || [];
+    db.settings = db.settings || [];
     writeDB(db);
   }
 }
 ensureDB();
+
+// ─── Authentication Middleware ─────────────────────────────────
+const AUTHORIZED_EMAIL = "patilparth127@gmail.com";
+
+function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ error: "Authorization header required" });
+  }
+  // For demo purposes, we'll skip actual token validation
+  // In production, verify JWT token here
+  next();
+}
+
+// ─── Authentication Endpoints ───────────────────────────────────
+// POST /api/auth/google
+app.post("/api/auth/google", (req, res) => {
+  const { token } = req.body;
+  
+  if (!token) {
+    return res.status(400).json({ error: "Google token is required" });
+  }
+
+  // In production, verify the Google token with Google's API
+  // For demo purposes, we'll create a user from the token
+  const db = readDB();
+  
+  // Demo: Extract email from token (in production, verify with Google)
+  // For now, we'll just create a demo user
+  const demoUser = {
+    id: uuidv4(),
+    email: AUTHORIZED_EMAIL,
+    name: "Demo User",
+    picture: null,
+    googleId: "demo-google-id",
+    createdAt: new Date().toISOString(),
+    lastLoginAt: new Date().toISOString(),
+  };
+
+  // Check if user exists
+  let user = db.users.find((u) => u.email === demoUser.email);
+  if (!user) {
+    user = demoUser;
+    db.users.push(user);
+    writeDB(db);
+  } else {
+    user.lastLoginAt = new Date().toISOString();
+    writeDB(db);
+  }
+
+  res.json({
+    success: true,
+    user,
+    token: "demo-jwt-token-" + uuidv4(), // In production, use real JWT
+  });
+});
+
+// GET /api/auth/me
+app.get("/api/auth/me", (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ error: "Authorization required" });
+  }
+
+  // In production, verify JWT and extract user
+  // For demo, return the authorized user
+  const db = readDB();
+  const user = db.users.find((u) => u.email === AUTHORIZED_EMAIL);
+  
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  res.json(user);
+});
+
+// POST /api/auth/logout
+app.post("/api/auth/logout", (req, res) => {
+  // In production, invalidate JWT token
+  res.json({ success: true, message: "Logged out successfully" });
+});
+
+// ─── Settings Endpoints ─────────────────────────────────────────
+// GET /api/settings
+app.get("/api/settings", (req, res) => {
+  const db = readDB();
+  
+  // Get or create default settings
+  let settings = db.settings[0];
+  if (!settings) {
+    settings = {
+      id: uuidv4(),
+      userId: null,
+      whatsappDelay: {
+        id: uuidv4(),
+        type: "whatsapp",
+        delayMs: 2000,
+        randomDelayMin: 1000,
+        randomDelayMax: 3000,
+        batchSize: 10,
+        enabled: false,
+        updatedAt: new Date().toISOString(),
+      },
+      emailDelay: {
+        id: uuidv4(),
+        type: "email",
+        delayMs: 1000,
+        randomDelayMin: 500,
+        randomDelayMax: 2000,
+        batchSize: 50,
+        enabled: false,
+        updatedAt: new Date().toISOString(),
+      },
+      smsDelay: {
+        id: uuidv4(),
+        type: "sms",
+        delayMs: 600,
+        randomDelayMin: 300,
+        randomDelayMax: 1000,
+        batchSize: 5,
+        enabled: false,
+        updatedAt: new Date().toISOString(),
+      },
+      updatedAt: new Date().toISOString(),
+    };
+    db.settings.push(settings);
+    writeDB(db);
+  }
+
+  res.json(settings);
+});
+
+// PUT /api/settings
+app.put("/api/settings", (req, res) => {
+  const db = readDB();
+  
+  if (db.settings.length === 0) {
+    return res.status(404).json({ error: "Settings not found" });
+  }
+
+  const updatedSettings = { ...db.settings[0], ...req.body, updatedAt: new Date().toISOString() };
+  db.settings[0] = updatedSettings;
+  writeDB(db);
+
+  res.json(updatedSettings);
+});
+
+// PUT /api/settings/delay/:type
+app.put("/api/settings/delay/:type", (req, res) => {
+  const { type } = req.params;
+  const validTypes = ["whatsapp", "email", "sms"];
+  
+  if (!validTypes.includes(type)) {
+    return res.status(400).json({ error: "Invalid delay type" });
+  }
+
+  const db = readDB();
+  
+  if (db.settings.length === 0) {
+    return res.status(404).json({ error: "Settings not found" });
+  }
+
+  const delayKey = `${type}Delay`;
+  const updatedDelay = { 
+    ...db.settings[0][delayKey], 
+    ...req.body, 
+    updatedAt: new Date().toISOString() 
+  };
+  
+  db.settings[0][delayKey] = updatedDelay;
+  db.settings[0].updatedAt = new Date().toISOString();
+  writeDB(db);
+
+  res.json(updatedDelay);
+});
 
 // ─── WhatsApp Setup ───────────────────────────────────────────
 let waReady = false;
@@ -227,6 +410,14 @@ app.delete("/api/contacts/:id", (req, res) => {
 
 // DELETE /api/contacts (all)
 app.delete("/api/contacts", (req, res) => {
+  const authHeader = req.headers.authorization;
+  const userEmail = authHeader ? authHeader.replace("Bearer ", "") : null;
+  
+  // Only allow authorized email to delete all contacts
+  if (userEmail !== AUTHORIZED_EMAIL) {
+    return res.status(403).json({ error: "You don't have permission to delete all contacts" });
+  }
+  
   const db = readDB();
   db.contacts = [];
   writeDB(db);
@@ -415,6 +606,15 @@ app.post("/api/email-campaigns/send", async (req, res) => {
 
   const logs = [];
 
+  // Get delay settings
+  const settings = db.settings[0];
+  const emailDelaySettings = settings?.emailDelay || {
+    delayMs: 1000,
+    randomDelayMin: 500,
+    randomDelayMax: 2000,
+    enabled: false,
+  };
+
   for (const contact of targets) {
     const log = {
       id: uuidv4(),
@@ -437,6 +637,12 @@ app.post("/api/email-campaigns/send", async (req, res) => {
 
       log.status = SendStatus.SENT;
       log.sentAt = new Date().toISOString();
+
+      // Apply delay based on settings
+      if (emailDelaySettings.enabled) {
+        const randomDelay = emailDelaySettings.randomDelayMin + Math.random() * (emailDelaySettings.randomDelayMax - emailDelaySettings.randomDelayMin);
+        await delay(emailDelaySettings.delayMs + randomDelay);
+      }
 
       const dbNow = readDB();
       const c = dbNow.contacts.find((x) => x.id === contact.id);
@@ -571,11 +777,27 @@ app.post("/api/whatsapp-campaigns/send", async (req, res) => {
 
   const logs = [];
 
+  // Get delay settings
+  const settings = db.settings[0];
+  const waDelaySettings = settings?.whatsappDelay || {
+    delayMs: 2000,
+    randomDelayMin: 1000,
+    randomDelayMax: 3000,
+    enabled: false,
+  };
+
   for (const contact of targets) {
     try {
       const finalMsg = message.replace(/\{name\}/gi, contact.name);
       await sendWhatsAppMessage(contact.phone, finalMsg);
-      await delay(2000);
+      
+      // Apply delay based on settings
+      if (waDelaySettings.enabled) {
+        const randomDelay = waDelaySettings.randomDelayMin + Math.random() * (waDelaySettings.randomDelayMax - waDelaySettings.randomDelayMin);
+        await delay(waDelaySettings.delayMs + randomDelay);
+      } else {
+        await delay(2000); // Default delay
+      }
 
       const sentAt = new Date().toISOString();
 
@@ -783,6 +1005,15 @@ app.post("/api/sms-campaigns/send", async (req, res) => {
 
   const logs = [];
 
+  // Get delay settings
+  const settings = db.settings[0];
+  const smsDelaySettings = settings?.smsDelay || {
+    delayMs: 600,
+    randomDelayMin: 300,
+    randomDelayMax: 1000,
+    enabled: false,
+  };
+
   for (const contact of targets) {
     const phone = formatPhone(contact.phone);
 
@@ -824,8 +1055,13 @@ app.post("/api/sms-campaigns/send", async (req, res) => {
 
     logs.push(log);
 
-    // Small delay between SMS to avoid rate limiting by Android
-    await new Promise((r) => setTimeout(r, 600));
+    // Apply delay based on settings
+    if (smsDelaySettings.enabled) {
+      const randomDelay = smsDelaySettings.randomDelayMin + Math.random() * (smsDelaySettings.randomDelayMax - smsDelaySettings.randomDelayMin);
+      await new Promise((r) => setTimeout(r, smsDelaySettings.delayMs + randomDelay));
+    } else {
+      await new Promise((r) => setTimeout(r, 600)); // Default delay
+    }
   }
 
   // Finalize

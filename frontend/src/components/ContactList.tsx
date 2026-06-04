@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useMemo } from "react";
 import {
   Upload,
   Trash2,
@@ -9,11 +9,15 @@ import {
   Mail,
   Phone,
   Download,
+  Check,
+  X,
+  Shield,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { Contact, Gender } from "../types";
 import { createContact, deleteContact, deleteAllContacts, uploadExcel } from "../utils/api";
 import { formatDate, formatPhone, genderLabel } from "../utils/helpers";
+import TableControls, { Column, SortConfig, FilterConfig, PaginationConfig } from "./TableControls";
 
 interface Props {
   contacts: Contact[];
@@ -36,13 +40,112 @@ export default function ContactList({ contacts, onRefresh }: Props) {
   const [addErrors, setAddErrors] = useState<Record<string, string>>({});
   const [adding, setAdding] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  
+  // Multi-select
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  
+  // Table controls
+  const [sortConfig, setSortConfig] = useState<SortConfig<Contact>>({ key: null, direction: null });
+  const [filterConfig, setFilterConfig] = useState<FilterConfig>({});
+  const [pagination, setPagination] = useState<PaginationConfig>({ page: 1, pageSize: 25, total: 0 });
+  
+  // Current user for permission check
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+  const AUTHORIZED_EMAIL = "patilparth127@gmail.com";
 
-  const filtered = contacts.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.email.toLowerCase().includes(search.toLowerCase()) ||
-      (c.phone && c.phone.includes(search))
-  );
+  // Check for current user (in real app, this would come from auth context)
+  React.useEffect(() => {
+    const storedEmail = localStorage.getItem("userEmail");
+    if (storedEmail) setCurrentUserEmail(storedEmail);
+  }, []);
+
+  const columns: Column<Contact>[] = [
+    { key: "name", label: "Name", sortable: true, filterable: true, filterType: "text" },
+    { key: "email", label: "Email", sortable: true, filterable: true, filterType: "text" },
+    { key: "phone", label: "Phone", sortable: true, filterable: true, filterType: "text" },
+    { 
+      key: "gender", 
+      label: "Gender", 
+      sortable: true, 
+      filterable: true, 
+      filterType: "select",
+      filterOptions: [
+        { value: "male", label: "Male" },
+        { value: "female", label: "Female" },
+        { value: "other", label: "Other" },
+      ]
+    },
+    { key: "emailSentCount", label: "Email Sent", sortable: true },
+    { key: "whatsappSentCount", label: "WA Sent", sortable: true },
+    { key: "createdAt", label: "Added", sortable: true },
+  ];
+
+  // Apply filters, search, and sorting
+  const filteredAndSorted = useMemo(() => {
+    let result = [...contacts];
+
+    // Apply search
+    if (search) {
+      result = result.filter(
+        (c) =>
+          c.name.toLowerCase().includes(search.toLowerCase()) ||
+          c.email.toLowerCase().includes(search.toLowerCase()) ||
+          (c.phone && c.phone.includes(search))
+      );
+    }
+
+    // Apply filters
+    Object.entries(filterConfig).forEach(([key, value]) => {
+      if (value) {
+        result = result.filter((c) => {
+          const contactValue = String(c[key as keyof Contact]).toLowerCase();
+          return contactValue.includes(String(value).toLowerCase());
+        });
+      }
+    });
+
+    // Apply sorting
+    if (sortConfig.key && sortConfig.direction) {
+      result.sort((a, b) => {
+        const aVal = a[sortConfig.key!];
+        const bVal = b[sortConfig.key!];
+        
+        if (typeof aVal === "number" && typeof bVal === "number") {
+          return sortConfig.direction === "asc" ? aVal - bVal : bVal - aVal;
+        }
+        
+        const aStr = String(aVal || "").toLowerCase();
+        const bStr = String(bVal || "").toLowerCase();
+        
+        if (sortConfig.direction === "asc") {
+          return aStr.localeCompare(bStr);
+        } else {
+          return bStr.localeCompare(aStr);
+        }
+      });
+    }
+
+    return result;
+  }, [contacts, search, filterConfig, sortConfig]);
+
+  // Apply pagination
+  const paginatedData = useMemo(() => {
+    const start = (pagination.page - 1) * pagination.pageSize;
+    const end = start + pagination.pageSize;
+    return filteredAndSorted.slice(start, end);
+  }, [filteredAndSorted, pagination.page, pagination.pageSize]);
+
+  // Update pagination total
+  React.useEffect(() => {
+    setPagination((prev) => ({ ...prev, total: filteredAndSorted.length }));
+  }, [filteredAndSorted.length]);
+
+  // Reset page when filters change
+  React.useEffect(() => {
+    setPagination((prev) => ({ ...prev, page: 1 }));
+  }, [search, filterConfig, sortConfig]);
+
+  const filtered = paginatedData;
 
   // Validate add form
   const validate = () => {
@@ -84,14 +187,52 @@ export default function ContactList({ contacts, onRefresh }: Props) {
   };
 
   const handleDeleteAll = async () => {
+    // Permission check
+    if (currentUserEmail !== AUTHORIZED_EMAIL) {
+      toast.error("You don't have permission to delete all contacts");
+      return;
+    }
+    
     if (!window.confirm(`Delete all ${contacts.length} contacts? This cannot be undone.`)) return;
     try {
       await deleteAllContacts();
       toast.success("All contacts deleted");
+      setSelectedIds(new Set());
       onRefresh();
     } catch {
       toast.error("Failed to delete contacts");
     }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) {
+      toast.error("No contacts selected");
+      return;
+    }
+    
+    if (!window.confirm(`Delete ${selectedIds.size} selected contacts? This cannot be undone.`)) return;
+    try {
+      await Promise.all(Array.from(selectedIds).map(id => deleteContact(id)));
+      toast.success(`${selectedIds.size} contacts deleted`);
+      setSelectedIds(new Set());
+      onRefresh();
+    } catch {
+      toast.error("Failed to delete contacts");
+    }
+  };
+
+  const toggleAll = () => {
+    if (selectedIds.size === paginatedData.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(paginatedData.map(c => c.id)));
+    }
+  };
+
+  const toggle = (id: string) => {
+    const s = new Set(selectedIds);
+    s.has(id) ? s.delete(id) : s.add(id);
+    setSelectedIds(s);
   };
 
   const handleFile = useCallback(async (file: File) => {
@@ -136,9 +277,14 @@ export default function ContactList({ contacts, onRefresh }: Props) {
           <button className="btn btn-secondary btn-sm" onClick={() => setShowAddForm(!showAddForm)}>
             <UserPlus size={14} /> Add Contact
           </button>
-          {contacts.length > 0 && (
+          {selectedIds.size > 0 && (
+            <button className="btn btn-danger btn-sm" onClick={handleDeleteSelected}>
+              <Trash2 size={14} /> Delete Selected ({selectedIds.size})
+            </button>
+          )}
+          {contacts.length > 0 && currentUserEmail === AUTHORIZED_EMAIL && (
             <button className="btn btn-danger btn-sm" onClick={handleDeleteAll}>
-              <Trash2 size={14} /> Clear All
+              <Shield size={14} /> Delete All
             </button>
           )}
         </div>
@@ -268,20 +414,32 @@ export default function ContactList({ contacts, onRefresh }: Props) {
         </div>
       )}
 
-      {/* Search */}
+      {/* Table Controls */}
       <div className="card">
         <div className="card-header">
           <h3>All Contacts</h3>
-          <div style={{ position: "relative" }}>
-            <Search size={14} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
-            <input
-              className="form-input"
-              style={{ paddingLeft: 30, width: 220 }}
-              placeholder="Search…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
+          {selectedIds.size > 0 && (
+            <span style={{ fontSize: "0.85rem", color: "var(--accent-email)", fontWeight: 600 }}>
+              {selectedIds.size} selected
+            </span>
+          )}
+        </div>
+        <div className="card-body">
+          <TableControls
+            columns={columns}
+            sortConfig={sortConfig}
+            onSort={(key) => setSortConfig({
+              key,
+              direction: sortConfig.key === key && sortConfig.direction === "asc" ? "desc" : "asc",
+            })}
+            filterConfig={filterConfig}
+            onFilterChange={(key, value) => setFilterConfig({ ...filterConfig, [key]: value })}
+            searchQuery={search}
+            onSearchChange={setSearch}
+            pagination={pagination}
+            onPageChange={(page) => setPagination({ ...pagination, page })}
+            onPageSizeChange={(pageSize) => setPagination({ ...pagination, pageSize, page: 1 })}
+          />
         </div>
 
         {filtered.length === 0 ? (
@@ -295,6 +453,13 @@ export default function ContactList({ contacts, onRefresh }: Props) {
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: 40 }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.size === paginatedData.length && paginatedData.length > 0}
+                      onChange={toggleAll}
+                    />
+                  </th>
                   <th>#</th>
                   <th>Name</th>
                   <th>Email</th>
@@ -310,8 +475,15 @@ export default function ContactList({ contacts, onRefresh }: Props) {
               </thead>
               <tbody>
                 {filtered.map((c, i) => (
-                  <tr key={c.id}>
-                    <td className="text-muted">{i + 1}</td>
+                  <tr key={c.id} style={{ background: selectedIds.has(c.id) ? "var(--bg-selected)" : undefined }}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(c.id)}
+                        onChange={() => toggle(c.id)}
+                      />
+                    </td>
+                    <td className="text-muted">{(pagination.page - 1) * pagination.pageSize + i + 1}</td>
                     <td style={{ fontWeight: 600 }}>{c.name}</td>
                     <td className="font-mono">{c.email}</td>
                     <td>{formatPhone(c.phone)}</td>

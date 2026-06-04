@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Send, ChevronDown, ChevronUp, MessageCircle } from "lucide-react";
 import toast from "react-hot-toast";
 import { Contact, WhatsAppCampaign, SendStatus } from "../types";
 import { sendWhatsAppCampaign } from "../utils/api";
 import { formatDate, formatPhone } from "../utils/helpers";
+import TableControls, { Column, SortConfig, FilterConfig, PaginationConfig } from "./TableControls";
 
 interface Props {
   contacts: Contact[];
@@ -19,8 +20,84 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
   const [message, setMessage] = useState("");
   const [msgError, setMsgError] = useState("");
   const [contactError, setContactError] = useState("");
+  
+  // Table controls for campaign history
+  const [historySearch, setHistorySearch] = useState("");
+  const [historySortConfig, setHistorySortConfig] = useState<SortConfig<WhatsAppCampaign>>({ key: null, direction: null });
+  const [historyFilterConfig, setHistoryFilterConfig] = useState<FilterConfig>({});
+  const [historyPagination, setHistoryPagination] = useState<PaginationConfig>({ page: 1, pageSize: 10, total: 0 });
 
   const waContacts = contacts.filter((c) => c.phone);
+
+  // Columns for campaign history
+  const historyColumns: Column<WhatsAppCampaign>[] = [
+    { key: "message", label: "Message", sortable: true, filterable: true, filterType: "text" },
+    { key: "createdAt", label: "Created", sortable: true },
+    { key: "status", label: "Status", sortable: true },
+  ];
+
+  // Apply filtering, search, and sorting to campaigns
+  const filteredAndSortedCampaigns = useMemo(() => {
+    let result = [...campaigns];
+
+    // Apply search
+    if (historySearch) {
+      result = result.filter(
+        (c) =>
+          c.message.toLowerCase().includes(historySearch.toLowerCase())
+      );
+    }
+
+    // Apply filters
+    Object.entries(historyFilterConfig).forEach(([key, value]) => {
+      if (value) {
+        result = result.filter((c) => {
+          const campaignValue = String(c[key as keyof WhatsAppCampaign]).toLowerCase();
+          return campaignValue.includes(String(value).toLowerCase());
+        });
+      }
+    });
+
+    // Apply sorting
+    if (historySortConfig.key && historySortConfig.direction) {
+      result.sort((a, b) => {
+        const aVal = a[historySortConfig.key!];
+        const bVal = b[historySortConfig.key!];
+        
+        if (typeof aVal === "number" && typeof bVal === "number") {
+          return historySortConfig.direction === "asc" ? aVal - bVal : bVal - aVal;
+        }
+        
+        const aStr = String(aVal || "").toLowerCase();
+        const bStr = String(bVal || "").toLowerCase();
+        
+        if (historySortConfig.direction === "asc") {
+          return aStr.localeCompare(bStr);
+        } else {
+          return bStr.localeCompare(aStr);
+        }
+      });
+    }
+
+    return result;
+  }, [campaigns, historySearch, historyFilterConfig, historySortConfig]);
+
+  // Apply pagination
+  const paginatedCampaigns = useMemo(() => {
+    const start = (historyPagination.page - 1) * historyPagination.pageSize;
+    const end = start + historyPagination.pageSize;
+    return filteredAndSortedCampaigns.slice(start, end);
+  }, [filteredAndSortedCampaigns, historyPagination.page, historyPagination.pageSize]);
+
+  // Update pagination total
+  React.useEffect(() => {
+    setHistoryPagination((prev) => ({ ...prev, total: filteredAndSortedCampaigns.length }));
+  }, [filteredAndSortedCampaigns.length]);
+
+  // Reset page when filters change
+  React.useEffect(() => {
+    setHistoryPagination((prev) => ({ ...prev, page: 1 }));
+  }, [historySearch, historyFilterConfig, historySortConfig]);
 
   const toggleAll = () => {
     if (selectedIds.size === waContacts.length) {
@@ -64,10 +141,6 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
       setSending(false);
     }
   };
-
-  const sortedCampaigns = [...campaigns].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
 
   return (
     <div>
@@ -246,7 +319,7 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
 
       {activeTab === "history" && (
         <div>
-          {sortedCampaigns.length === 0 ? (
+          {paginatedCampaigns.length === 0 ? (
             <div className="empty-state">
               <div className="empty-icon">💬</div>
               <h3>No campaigns yet</h3>
@@ -254,7 +327,22 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {sortedCampaigns.map((camp) => {
+              <TableControls
+                columns={historyColumns}
+                sortConfig={historySortConfig}
+                onSort={(key) => setHistorySortConfig({
+                  key,
+                  direction: historySortConfig.key === key && historySortConfig.direction === "asc" ? "desc" : "asc",
+                })}
+                filterConfig={historyFilterConfig}
+                onFilterChange={(key, value) => setHistoryFilterConfig({ ...historyFilterConfig, [key]: value })}
+                searchQuery={historySearch}
+                onSearchChange={setHistorySearch}
+                pagination={historyPagination}
+                onPageChange={(page) => setHistoryPagination({ ...historyPagination, page })}
+                onPageSizeChange={(pageSize) => setHistoryPagination({ ...historyPagination, pageSize, page: 1 })}
+              />
+              {paginatedCampaigns.map((camp) => {
                 const pct = camp.totalTargets > 0 ? Math.round((camp.sentCount / camp.totalTargets) * 100) : 0;
                 const isOpen = expandedCamp === camp.id;
                 return (

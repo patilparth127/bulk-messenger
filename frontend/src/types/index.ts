@@ -144,3 +144,42 @@ export interface SendSmsPayload {
   template: string;
   contactIds: string[];
 }
+
+// ─── User & Authentication ─────────────────────────────────────────
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  picture?: string;
+  googleId?: string;
+  createdAt: string;
+  lastLoginAt: string;
+}
+
+export interface AuthResponse {
+  success: boolean;
+  user?: User;
+  token?: string;
+  error?: string;
+}
+
+// ─── Settings ───────────────────────────────────────────────────────
+export interface DelaySettings {
+  id: string;
+  type: "whatsapp" | "email" | "sms";
+  delayMs: number;
+  randomDelayMin: number;
+  randomDelayMax: number;
+  batchSize: number;
+  enabled: boolean;
+  updatedAt: string;
+}
+
+export interface AppSettings {
+  id: string;
+  userId?: string;
+  whatsappDelay: DelaySettings;
+  emailDelay: DelaySettings;
+  smsDelay: DelaySettings;
+  updatedAt: string;
+}

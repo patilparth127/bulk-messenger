@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import toast from "react-hot-toast";
 import { Toaster } from "react-hot-toast";
 import {
   LayoutDashboard,
@@ -7,22 +8,27 @@ import {
   MessageCircle,
   RefreshCw,
   Smartphone,
+  Settings as SettingsIcon,
+  LogOut,
 } from "lucide-react";
 import "./styles.css";
-import { Contact, EmailCampaign, SmsCampaign, WhatsAppCampaign } from "./types";
+import { Contact, EmailCampaign, SmsCampaign, WhatsAppCampaign, User } from "./types";
 import {
   getContacts,
   getEmailCampaigns,
   getSmsCampaigns,
   getWhatsAppCampaigns,
+  logout,
 } from "./utils/api";
 import Dashboard from "./components/Dashboard";
 import ContactList from "./components/ContactList";
 import EmailPortal from "./components/EmailPortal";
 import WhatsAppPortal from "./components/WhatsAppPortal";
 import SmsPortal from "./components/SmsPortal";
+import Settings from "./components/Settings";
+import Login from "./components/Login";
 
-type Page = "dashboard" | "contacts" | "email" | "whatsapp" | "sms";
+type Page = "dashboard" | "contacts" | "email" | "whatsapp" | "sms" | "settings";
 
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
@@ -31,6 +37,39 @@ export default function App() {
   const [waCampaigns, setWaCampaigns] = useState<WhatsAppCampaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [smsCampaigns, setSmsCampaigns] = useState<SmsCampaign[]>([]);
+  const [user, setUser] = useState<User | null>(null);
+
+  // Check for existing session on mount
+  useEffect(() => {
+    const storedEmail = localStorage.getItem("userEmail");
+    const storedName = localStorage.getItem("userName");
+    if (storedEmail && storedName) {
+      setUser({
+        id: "demo-user",
+        email: storedEmail,
+        name: storedName,
+        createdAt: new Date().toISOString(),
+        lastLoginAt: new Date().toISOString(),
+      });
+    }
+  }, []);
+
+  const handleLogin = (loggedInUser: User) => {
+    setUser(loggedInUser);
+    refresh();
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      localStorage.removeItem("userEmail");
+      localStorage.removeItem("userName");
+      setUser(null);
+      toast.success("Logged out successfully");
+    } catch (error) {
+      toast.error("Failed to logout");
+    }
+  };
   const refresh = useCallback(async () => {
     try {
       const [c, e, w, s] = await Promise.all([
@@ -88,6 +127,11 @@ export default function App() {
         icon: <Smartphone size={16} />,
         badge: smsCampaigns.length || undefined,
       },
+      {
+        id: "settings",
+        label: "Settings",
+        icon: <SettingsIcon size={16} />,
+      },
     ];
 
   const activeClass = (id: Page) =>
@@ -98,6 +142,11 @@ export default function App() {
           ? "active-wa"
           : "active-neutral"
       : "";
+
+  // Show login screen if not authenticated
+  if (!user) {
+    return <Login onLogin={handleLogin} />;
+  }
 
   return (
     <div className="app-shell">
@@ -133,6 +182,10 @@ export default function App() {
           <button className="nav-item" onClick={refresh}>
             <RefreshCw size={16} />
             <span>Refresh Data</span>
+          </button>
+          <button className="nav-item" onClick={handleLogout} style={{ color: "var(--accent-danger)" }}>
+            <LogOut size={16} />
+            <span>Logout</span>
           </button>
         </div>
 
@@ -220,6 +273,9 @@ export default function App() {
                 campaigns={smsCampaigns}
                 onRefresh={refresh}
               />
+            )}
+            {page === "settings" && (
+              <Settings />
             )}
           </>
         )}

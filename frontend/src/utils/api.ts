@@ -8,6 +8,10 @@ import {
   SendEmailPayload,
   SendWhatsAppPayload,
   SendSmsPayload,
+  User,
+  AuthResponse,
+  AppSettings,
+  DelaySettings,
 } from "../types";
 
 const BASE = "/api";
@@ -67,3 +71,23 @@ export const sendSmsCampaign = (payload: SendSmsPayload) =>
 
 export const getAdbStatus = () =>
   api.get<{ connected: boolean; device: string | null; message: string }>("/sms/adb-status").then((r) => r.data);
+
+// ─── Authentication ─────────────────────────────────────────────
+export const googleLogin = (token: string) =>
+  api.post<AuthResponse>("/auth/google", { token }).then((r) => r.data);
+
+export const getCurrentUser = () =>
+  api.get<User>("/auth/me").then((r) => r.data);
+
+export const logout = () =>
+  api.post("/auth/logout").then((r) => r.data);
+
+// ─── Settings ─────────────────────────────────────────────────────
+export const getSettings = () =>
+  api.get<AppSettings>("/settings").then((r) => r.data);
+
+export const updateSettings = (settings: Partial<AppSettings>) =>
+  api.put<AppSettings>("/settings", settings).then((r) => r.data);
+
+export const updateDelaySettings = (type: "whatsapp" | "email" | "sms", settings: Partial<DelaySettings>) =>
+  api.put<DelaySettings>(`/settings/delay/${type}`, settings).then((r) => r.data);
