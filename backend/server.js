@@ -1952,13 +1952,24 @@ app.get("/api/sms-logs", (req, res) => {
 
 // POST /api/sms-campaigns/send
 app.post("/api/sms-campaigns/send", async (req, res) => {
-  const { template, contactIds } = req.body;
+  const { template, contactIds, companyId } = req.body;
 
   if (!template || !template.trim()) {
     return res.status(400).json({ error: "SMS template is required" });
   }
   if (!contactIds || !contactIds.length) {
     return res.status(400).json({ error: "Select at least one contact" });
+  }
+
+  // Validate subscription for SMS module
+  if (companyId) {
+    const validation = validateSubscription(companyId, ProductType.SMS);
+    if (!validation.valid) {
+      return res.status(403).json({ 
+        error: validation.error,
+        code: validation.code,
+      });
+    }
   }
 
   // Check SMS Gateway status
