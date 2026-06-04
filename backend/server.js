@@ -1692,10 +1692,21 @@ app.get("/api/whatsapp-campaigns", (req, res) => {
 
 // POST /api/whatsapp-campaigns/send
 app.post("/api/whatsapp-campaigns/send", async (req, res) => {
-  const { message, contactIds, hasReplyButtons, replyOptions } = req.body;
+  const { message, contactIds, hasReplyButtons, replyOptions, companyId } = req.body;
 
   if (!message || !contactIds?.length) {
     return res.status(400).json({ error: "message and contactIds are required" });
+  }
+
+  // Validate subscription for WHATSAPP module
+  if (companyId) {
+    const validation = validateSubscription(companyId, ProductType.WHATSAPP);
+    if (!validation.valid) {
+      return res.status(403).json({ 
+        error: validation.error,
+        code: validation.code,
+      });
+    }
   }
 
   const state = await getWhatsAppRuntimeState();
