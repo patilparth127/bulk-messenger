@@ -47,6 +47,9 @@ export default function SmsPortal({ contacts, campaigns, onRefresh }: Props) {
   const [sending, setSending] = useState(false);
   const [template, setTemplate] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showRenewalPopup, setShowRenewalPopup] = useState(false);
+  const [renewalError, setRenewalError] = useState("");
+  const [renewalCode, setRenewalCode] = useState("");
   const [gatewayStatus, setGatewayStatus] = useState<{ connected: boolean; device: string | null; message: string } | null>(null);
   const [checkingGateway, setCheckingGateway] = useState(false);
   const [previewContact, setPreviewContact] = useState<Contact | null>(null);
