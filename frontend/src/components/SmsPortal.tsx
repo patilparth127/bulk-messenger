@@ -208,7 +208,14 @@ export default function SmsPortal({ contacts, campaigns, onRefresh }: Props) {
       setActiveTab("history");
     } catch (err: any) {
       toast.dismiss(tid);
-      toast.error(err?.response?.data?.error || "SMS send failed");
+      const errorData = err?.response?.data;
+      if (errorData?.code && ["SUBSCRIPTION_EXPIRED", "SUBSCRIPTION_INACTIVE", "USAGE_LIMIT_EXCEEDED", "NO_SUBSCRIPTION", "PRODUCT_DISABLED"].includes(errorData.code)) {
+        setRenewalError(errorData.error || "Subscription validation failed");
+        setRenewalCode(errorData.code);
+        setShowRenewalPopup(true);
+      } else {
+        toast.error(errorData?.error || "SMS send failed");
+      }
     } finally {
       setSending(false);
     }
