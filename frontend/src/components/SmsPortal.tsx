@@ -5,6 +5,7 @@ import { Contact, SmsCampaign, SendStatus } from "../types";
 import { sendSmsCampaign, getSmsGatewayStatus } from "../utils/api";
 import { formatDate, formatPhone } from "../utils/helpers";
 import TableControls, { Column, SortConfig, FilterConfig, PaginationConfig } from "./TableControls";
+import RenewalPopup from "./RenewalPopup";
 
 interface Props {
   contacts: Contact[];

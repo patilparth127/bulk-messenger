@@ -5,6 +5,7 @@ import { Contact, EmailCampaign, SendStatus } from "../types";
 import { sendEmailCampaign } from "../utils/api";
 import { formatDate } from "../utils/helpers";
 import TableControls, { Column, SortConfig, FilterConfig, PaginationConfig } from "./TableControls";
+import RenewalPopup from "./RenewalPopup";
 
 interface Props {
   contacts: Contact[];
@@ -18,6 +19,9 @@ export default function EmailPortal({ contacts, campaigns, onRefresh }: Props) {
   const [expandedCamp, setExpandedCamp] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [showSmtp, setShowSmtp] = useState(false);
+  const [showRenewalPopup, setShowRenewalPopup] = useState(false);
+  const [renewalError, setRenewalError] = useState("");
+  const [renewalCode, setRenewalCode] = useState("");
   
   // Table controls for campaign history
   const [historySearch, setHistorySearch] = useState("");
@@ -150,7 +154,14 @@ export default function EmailPortal({ contacts, campaigns, onRefresh }: Props) {
       setActiveTab("history");
     } catch (err: any) {
       toast.dismiss(tid);
-      toast.error(err?.response?.data?.error || "Send failed");
+      const errorData = err?.response?.data;
+      if (errorData?.code && ["SUBSCRIPTION_EXPIRED", "SUBSCRIPTION_INACTIVE", "USAGE_LIMIT_EXCEEDED", "NO_SUBSCRIPTION", "PRODUCT_DISABLED"].includes(errorData.code)) {
+        setRenewalError(errorData.error || "Subscription validation failed");
+        setRenewalCode(errorData.code);
+        setShowRenewalPopup(true);
+      } else {
+        toast.error(errorData?.error || "Send failed");
+      }
     } finally {
       setSending(false);
     }
@@ -445,6 +456,18 @@ export default function EmailPortal({ contacts, campaigns, onRefresh }: Props) {
           )}
         </div>
       )}
+      
+      <RenewalPopup
+        isOpen={showRenewalPopup}
+        onClose={() => setShowRenewalPopup(false)}
+        error={renewalError}
+        code={renewalCode}
+        onRenew={() => {
+          setShowRenewalPopup(false);
+          // Navigate to subscription page or show subscription modal
+          toast.success("Redirecting to subscription page...");
+        }}
+      />
     </div>
   );
 }

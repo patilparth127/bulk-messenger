@@ -5,6 +5,7 @@ import { Contact, WhatsAppCampaign, SendStatus } from "../types";
 import { sendWhatsAppCampaign } from "../utils/api";
 import { formatDate, formatPhone } from "../utils/helpers";
 import TableControls, { Column, SortConfig, FilterConfig, PaginationConfig } from "./TableControls";
+import RenewalPopup from "./RenewalPopup";
 
 interface Props {
   contacts: Contact[];
@@ -20,6 +21,9 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
   const [message, setMessage] = useState("");
   const [msgError, setMsgError] = useState("");
   const [contactError, setContactError] = useState("");
+  const [showRenewalPopup, setShowRenewalPopup] = useState(false);
+  const [renewalError, setRenewalError] = useState("");
+  const [renewalCode, setRenewalCode] = useState("");
   
   // Reply buttons simulation
   const [hasReplyButtons, setHasReplyButtons] = useState(false);
@@ -153,7 +157,14 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
       setActiveTab("history");
     } catch (err: any) {
       toast.dismiss(tid);
-      toast.error(err?.response?.data?.error || "Send failed");
+      const errorData = err?.response?.data;
+      if (errorData?.code && ["SUBSCRIPTION_EXPIRED", "SUBSCRIPTION_INACTIVE", "USAGE_LIMIT_EXCEEDED", "NO_SUBSCRIPTION", "PRODUCT_DISABLED"].includes(errorData.code)) {
+        setRenewalError(errorData.error || "Subscription validation failed");
+        setRenewalCode(errorData.code);
+        setShowRenewalPopup(true);
+      } else {
+        toast.error(errorData?.error || "Send failed");
+      }
     } finally {
       setSending(false);
     }
@@ -472,6 +483,17 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
           )}
         </div>
       )}
+      
+      <RenewalPopup
+        isOpen={showRenewalPopup}
+        onClose={() => setShowRenewalPopup(false)}
+        error={renewalError}
+        code={renewalCode}
+        onRenew={() => {
+          setShowRenewalPopup(false);
+          toast.success("Redirecting to subscription page...");
+        }}
+      />
     </div>
   );
 }
