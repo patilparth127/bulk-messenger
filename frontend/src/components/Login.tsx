@@ -11,7 +11,7 @@ interface Props {
 export default function Login({ onLogin }: Props) {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"google" | "password">("password");
-  const [credentials, setCredentials] = useState({ username: "", password: "" });
+  const [credentials, setCredentials] = useState({ username: "", password: "", companyCode: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleGoogleLogin = async () => {
@@ -45,6 +45,11 @@ export default function Login({ onLogin }: Props) {
     if (!credentials.username.trim()) errs.username = "Username is required";
     if (!credentials.password.trim()) errs.password = "Password is required";
     
+    // Only require company code for non-master admin users
+    if (credentials.username !== "patilparth127@gmail.com" && !credentials.companyCode.trim()) {
+      errs.companyCode = "Company code is required";
+    }
+    
     if (Object.keys(errs).length) {
       setErrors(errs);
       return;
@@ -55,6 +60,7 @@ export default function Login({ onLogin }: Props) {
       const response = await login({
         username: credentials.username,
         password: credentials.password,
+        companyCode: credentials.companyCode,
         authMethod: AuthMethod.USERNAME_PASSWORD,
       });
       
@@ -186,6 +192,34 @@ export default function Login({ onLogin }: Props) {
                   />
                 </div>
                 {errors.password && <span className="form-error">{errors.password}</span>}
+              </div>
+
+              <div style={{ marginBottom: 24 }}>
+                <label className="form-label">Company Code</label>
+                <div style={{ position: "relative" }}>
+                  <Shield
+                    size={16}
+                    style={{
+                      position: "absolute",
+                      left: 12,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      color: "var(--text-muted)",
+                    }}
+                  />
+                  <input
+                    className="form-input"
+                    style={{ paddingLeft: 40 }}
+                    placeholder="Enter your company code"
+                    value={credentials.companyCode}
+                    onChange={(e) => setCredentials({ ...credentials, companyCode: e.target.value.toUpperCase() })}
+                    disabled={loading}
+                  />
+                </div>
+                {errors.companyCode && <span className="form-error">{errors.companyCode}</span>}
+                <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: 4 }}>
+                  Not required for Master Admin (patilparth127@gmail.com)
+                </p>
               </div>
 
               <button

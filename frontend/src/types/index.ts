@@ -195,6 +195,7 @@ export interface LoginCredentials {
   password?: string;
   email?: string;
   googleToken?: string;
+  companyCode?: string;
   authMethod: AuthMethod;
 }
 
