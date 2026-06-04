@@ -177,6 +177,8 @@ export interface User {
   googleId?: string;
   role: UserRole;
   authMethod: AuthMethod;
+  companyId: string | null;
+  companyCode: string | null;
   createdAt: string;
   lastLoginAt: string;
 }
@@ -270,6 +272,7 @@ export interface Company {
   logo?: string;
   contactEmail: string;
   contactPhone: string;
+  companyCode: string;
   address?: {
     street: string;
     city: string;
@@ -383,20 +386,6 @@ export interface SmsCampaign {
   createdAt: string;
   completedAt: string | null;
   logs: SmsLog[];
-}
-
-export interface User {
-  id: string;
-  email: string;
-  username?: string;
-  name: string;
-  picture?: string;
-  googleId?: string;
-  role: UserRole;
-  authMethod: AuthMethod;
-  companyId?: string;
-  createdAt: string;
-  lastLoginAt: string;
 }
 
 // ─── WhatsApp Cloud API Types ───────────────────────────────────────────────

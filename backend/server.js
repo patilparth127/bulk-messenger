@@ -8,6 +8,8 @@ const fs = require("fs");
 const path = require("path");
 const { Client, LocalAuth } = require("whatsapp-web.js");
 const qrcode = require("qrcode-terminal");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 
 const app = express();
 const PORT = 3200;
@@ -22,6 +24,116 @@ const WHATSAPP_CONFIG = {
   webhookVerifyToken: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || "",
   webhookUrl: process.env.WHATSAPP_WEBHOOK_URL || "",
 };
+
+// ─── JWT Configuration ───────────────────────────────────────────
+const JWT_CONFIG = {
+  secret: process.env.JWT_SECRET || "your-super-secret-jwt-key-change-in-production",
+  expiresIn: process.env.JWT_EXPIRES_IN || "7d",
+};
+
+// ─── MASTER ADMIN Configuration ───────────────────────────────────
+const MASTER_ADMIN_EMAIL = "patilparth127@gmail.com";
+
+// ─── Authentication Helper Functions ───────────────────────────────
+function generateToken(user) {
+  return jwt.sign(
+    {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      companyId: user.companyId,
+    },
+    JWT_CONFIG.secret,
+    { expiresIn: JWT_CONFIG.expiresIn }
+  );
+}
+
+function verifyToken(token) {
+  try {
+    return jwt.verify(token, JWT_CONFIG.secret);
+  } catch (error) {
+    return null;
+  }
+}
+
+async function hashPassword(password) {
+  const salt = await bcrypt.genSalt(10);
+  return bcrypt.hash(password, salt);
+}
+
+async function comparePassword(password, hashedPassword) {
+  return bcrypt.compare(password, hashedPassword);
+}
+
+// ─── Subscription Validation Helper Functions ───────────────────────
+function validateSubscription(companyId, productType) {
+  const db = readDB();
+  
+  // Find subscription for the company
+  const subscription = db.subscriptions?.find((s) => s.companyId === companyId);
+  
+  if (!subscription) {
+    return {
+      valid: false,
+      error: "No subscription found for this company",
+      code: "NO_SUBSCRIPTION",
+    };
+  }
+  
+  // Check if subscription is active
+  if (subscription.status !== SubscriptionStatus.ACTIVE) {
+    return {
+      valid: false,
+      error: `Subscription is ${subscription.status.toLowerCase()}. Please renew your subscription.`,
+      code: "SUBSCRIPTION_INACTIVE",
+    };
+  }
+  
+  // Check if subscription has expired
+  const endDate = new Date(subscription.endDate);
+  const now = new Date();
+  if (endDate < now) {
+    return {
+      valid: false,
+      error: "Subscription has expired. Please renew your subscription.",
+      code: "SUBSCRIPTION_EXPIRED",
+    };
+  }
+  
+  // Check if the product is enabled
+  const productLicense = subscription.products?.find((p) => p.productType === productType);
+  
+  if (!productLicense) {
+    return {
+      valid: false,
+      error: `${productType} module is not included in your subscription`,
+      code: "PRODUCT_NOT_INCLUDED",
+    };
+  }
+  
+  if (!productLicense.isEnabled) {
+    return {
+      valid: false,
+      error: `${productType} module is disabled. Please contact support.`,
+      code: "PRODUCT_DISABLED",
+    };
+  }
+  
+  // Check usage limit
+  if (productLicense.currentUsage >= productLicense.usageLimit) {
+    return {
+      valid: false,
+      error: `${productType} usage limit exceeded. Please upgrade your subscription.`,
+      code: "USAGE_LIMIT_EXCEEDED",
+    };
+  }
+  
+  return {
+    valid: true,
+    subscription,
+    productLicense,
+  };
+}
 
 // ─── WhatsApp Cloud API Service Functions ───────────────────────
 async function sendWhatsAppCloudMessage(to, messageType, templateName, templateVariables, media, buttons, ctaUrl) {
@@ -226,6 +338,7 @@ function ensureDB() {
       companies: [],
       subscriptions: [],
       webhook_events: [],
+      notifications: [],
     };
     writeDB(initialDB);
   } else {
@@ -243,28 +356,41 @@ function ensureDB() {
     db.companies = db.companies || [];
     db.subscriptions = db.subscriptions || [];
     db.webhook_events = db.webhook_events || [];
+    db.notifications = db.notifications || [];
     writeDB(db);
   }
 }
 ensureDB();
 
 // ─── Authentication Middleware ─────────────────────────────────
-const AUTHORIZED_EMAIL = "patilparth127@gmail.com";
-
 function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
     return res.status(401).json({ error: "Authorization header required" });
   }
-  // For demo purposes, we'll skip actual token validation
-  // In production, verify JWT token here
+
+  const token = authHeader.replace("Bearer ", "");
+  const decoded = verifyToken(token);
+
+  if (!decoded) {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+
+  req.user = decoded;
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  if (!req.user || req.user.role !== UserRole.ADMIN) {
+    return res.status(403).json({ error: "Admin access required" });
+  }
   next();
 }
 
 // ─── Authentication Endpoints ───────────────────────────────────
 // POST /api/auth/login - Username/Password login
-app.post("/api/auth/login", (req, res) => {
-  const { username, password, authMethod } = req.body;
+app.post("/api/auth/login", async (req, res) => {
+  const { username, password, authMethod, companyCode } = req.body;
   
   if (authMethod === AuthMethod.USERNAME_PASSWORD) {
     if (!username || !password) {
@@ -272,15 +398,67 @@ app.post("/api/auth/login", (req, res) => {
     }
 
     const db = readDB();
-    const user = db.users.find((u) => u.username === username);
+    let user = db.users.find((u) => u.username === username);
     
+    // SPECIAL RULE: MASTER ADMIN - patilparth127@gmail.com
+    // This user must always be able to login successfully
+    if (username === MASTER_ADMIN_EMAIL) {
+      // If user doesn't exist, create them automatically
+      if (!user) {
+        user = {
+          id: uuidv4(),
+          email: MASTER_ADMIN_EMAIL,
+          username: MASTER_ADMIN_EMAIL,
+          name: "Master Admin",
+          role: UserRole.ADMIN,
+          authMethod: AuthMethod.USERNAME_PASSWORD,
+          password: await hashPassword(password),
+          companyId: null,
+          companyCode: null,
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+        };
+        db.users.push(user);
+        writeDB(db);
+      } else {
+        // Update password if it doesn't match (for convenience)
+        const passwordMatch = await comparePassword(password, user.password);
+        if (!passwordMatch) {
+          user.password = await hashPassword(password);
+        }
+        user.lastLoginAt = new Date().toISOString();
+        writeDB(db);
+      }
+
+      // Remove password from response
+      const { password: _, ...userWithoutPassword } = user;
+
+      const token = generateToken(user);
+
+      return res.json({
+        success: true,
+        user: userWithoutPassword,
+        token,
+      });
+    }
+
+    // Normal user authentication - require company code
+    if (!companyCode) {
+      return res.status(400).json({ error: "Company code is required" });
+    }
+
     if (!user) {
       return res.status(401).json({ error: "Invalid username or password" });
     }
 
-    // In production, use bcrypt to compare hashed passwords
-    // For demo, we'll do simple comparison (NOT SECURE FOR PRODUCTION)
-    if (user.password !== password) {
+    // Validate company code
+    if (user.companyCode !== companyCode.toUpperCase()) {
+      return res.status(401).json({ error: "Invalid company code" });
+    }
+
+    // Compare password using bcrypt
+    const passwordMatch = await comparePassword(password, user.password);
+    if (!passwordMatch) {
       return res.status(401).json({ error: "Invalid username or password" });
     }
 
@@ -290,10 +468,12 @@ app.post("/api/auth/login", (req, res) => {
     // Remove password from response
     const { password: _, ...userWithoutPassword } = user;
 
+    const token = generateToken(user);
+
     res.json({
       success: true,
       user: userWithoutPassword,
-      token: "demo-jwt-token-" + uuidv4(), // In production, use real JWT
+      token,
     });
   } else {
     return res.status(400).json({ error: "Invalid auth method" });
@@ -301,7 +481,7 @@ app.post("/api/auth/login", (req, res) => {
 });
 
 // POST /api/auth/google
-app.post("/api/auth/google", (req, res) => {
+app.post("/api/auth/google", async (req, res) => {
   const { token } = req.body;
   
   if (!token) {
@@ -322,6 +502,7 @@ app.post("/api/auth/google", (req, res) => {
     googleId: "demo-google-id",
     role: UserRole.ADMIN,
     authMethod: AuthMethod.GOOGLE,
+    companyId: null,
     createdAt: new Date().toISOString(),
     lastLoginAt: new Date().toISOString(),
   };
@@ -340,10 +521,12 @@ app.post("/api/auth/google", (req, res) => {
   // Remove password from response if exists
   const { password: _, ...userWithoutPassword } = user;
 
+  const jwtToken = generateToken(user);
+
   res.json({
     success: true,
     user: userWithoutPassword,
-    token: "demo-jwt-token-" + uuidv4(), // In production, use real JWT
+    token: jwtToken,
   });
 });
 
@@ -354,12 +537,16 @@ app.get("/api/auth/me", (req, res) => {
     return res.status(401).json({ error: "Authorization required" });
   }
 
-  // In production, verify JWT and extract user
-  // For demo, return the authorized user
+  const token = authHeader.replace("Bearer ", "");
+  const decoded = verifyToken(token);
+
+  if (!decoded) {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+
   const db = readDB();
-  const userEmail = authHeader.replace("Bearer ", "");
-  const user = db.users.find((u) => u.email === userEmail || u.username === userEmail);
-  
+  const user = db.users.find((u) => u.id === decoded.userId);
+
   if (!user) {
     return res.status(404).json({ error: "User not found" });
   }
@@ -367,7 +554,10 @@ app.get("/api/auth/me", (req, res) => {
   // Remove password from response
   const { password: _, ...userWithoutPassword } = user;
 
-  res.json(userWithoutPassword);
+  res.json({
+    success: true,
+    user: userWithoutPassword,
+  });
 });
 
 // POST /api/auth/logout
@@ -397,7 +587,7 @@ app.get("/api/users", (req, res) => {
 });
 
 // POST /api/users - Create new user (Admin only)
-app.post("/api/users", (req, res) => {
+app.post("/api/users", async (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader) {
     return res.status(401).json({ error: "Authorization required" });
@@ -424,14 +614,18 @@ app.post("/api/users", (req, res) => {
     return res.status(400).json({ error: "Email already exists" });
   }
 
+  const hashedPassword = await hashPassword(password);
+
   const newUser = {
     id: uuidv4(),
     username,
-    password, // In production, hash this with bcrypt
+    password: hashedPassword,
     email: email.toLowerCase(),
     name,
     role: role || UserRole.USER,
     authMethod: AuthMethod.USERNAME_PASSWORD,
+    companyId: null,
+    companyCode: null,
     createdAt: new Date().toISOString(),
     lastLoginAt: new Date().toISOString(),
   };
@@ -537,19 +731,26 @@ app.get("/api/companies/:id", (req, res) => {
 
 // POST /api/companies
 app.post("/api/companies", (req, res) => {
-  const { name, domain, contactEmail, contactPhone, address } = req.body;
+  const { name, domain, contactEmail, contactPhone, address, companyCode } = req.body;
 
-  if (!name || !contactEmail || !contactPhone) {
-    return res.status(400).json({ error: "Name, contact email, and contact phone are required" });
+  if (!name || !contactEmail || !contactPhone || !companyCode) {
+    return res.status(400).json({ error: "Name, contact email, contact phone, and company code are required" });
   }
 
   const db = readDB();
+  
+  // Check if company code already exists
+  if (db.companies.find((c) => c.companyCode === companyCode)) {
+    return res.status(400).json({ error: "Company code already exists" });
+  }
+
   const company = {
     id: uuidv4(),
     name: String(name).trim(),
     domain: domain ? String(domain).trim() : undefined,
     contactEmail: String(contactEmail).trim().toLowerCase(),
     contactPhone: String(contactPhone).trim(),
+    companyCode: String(companyCode).trim().toUpperCase(),
     address: address || undefined,
     isActive: true,
     createdAt: new Date().toISOString(),
@@ -696,6 +897,22 @@ app.post("/api/subscriptions", (req, res) => {
 
   db.subscriptions = db.subscriptions || [];
   db.subscriptions.push(subscription);
+
+  // Create notification for master admin
+  const notification = {
+    id: uuidv4(),
+    type: "subscription_purchase",
+    title: "New Subscription Purchase",
+    message: `Company "${company.name}" has purchased the ${plan} plan.`,
+    companyId: companyId,
+    subscriptionId: subscription.id,
+    isRead: false,
+    createdAt: new Date().toISOString(),
+  };
+
+  db.notifications = db.notifications || [];
+  db.notifications.push(notification);
+
   writeDB(db);
 
   res.status(201).json(subscription);
@@ -737,6 +954,123 @@ app.delete("/api/subscriptions/:id", (req, res) => {
   db.subscriptions.splice(idx, 1);
   writeDB(db);
   res.json({ success: true, message: "Subscription deleted successfully" });
+});
+
+// ─── Notification Endpoints (Admin only) ─────────────────────────
+// GET /api/notifications - Get all notifications for admin
+app.get("/api/notifications", (req, res) => {
+  const db = readDB();
+  const notifications = db.notifications || [];
+  
+  // Sort by createdAt descending (newest first)
+  const sortedNotifications = notifications.sort((a, b) => 
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  );
+  
+  res.json(sortedNotifications);
+});
+
+// PUT /api/notifications/:id/read - Mark notification as read
+app.put("/api/notifications/:id/read", (req, res) => {
+  const db = readDB();
+  const idx = db.notifications?.findIndex((n) => n.id === req.params.id);
+  
+  if (idx === -1) {
+    return res.status(404).json({ error: "Notification not found" });
+  }
+  
+  db.notifications[idx].isRead = true;
+  writeDB(db);
+  
+  res.json({ success: true, message: "Notification marked as read" });
+});
+
+// PUT /api/notifications/read-all - Mark all notifications as read
+app.put("/api/notifications/read-all", (req, res) => {
+  const db = readDB();
+  
+  if (db.notifications) {
+    db.notifications.forEach((n) => {
+      n.isRead = true;
+    });
+    writeDB(db);
+  }
+  
+  res.json({ success: true, message: "All notifications marked as read" });
+});
+
+// DELETE /api/notifications/:id - Delete notification
+app.delete("/api/notifications/:id", (req, res) => {
+  const db = readDB();
+  const idx = db.notifications?.findIndex((n) => n.id === req.params.id);
+  
+  if (idx === -1) {
+    return res.status(404).json({ error: "Notification not found" });
+  }
+  
+  db.notifications.splice(idx, 1);
+  writeDB(db);
+  
+  res.json({ success: true, message: "Notification deleted successfully" });
+});
+
+// ─── Service Toggle Endpoints (Admin only) ────────────────────────
+// PUT /api/companies/:id/toggle-service - Toggle service for a company
+app.put("/api/companies/:id/toggle-service", (req, res) => {
+  const { serviceType, enabled } = req.body;
+  
+  if (!serviceType || typeof enabled !== "boolean") {
+    return res.status(400).json({ error: "serviceType and enabled are required" });
+  }
+  
+  if (!Object.values(ProductType).includes(serviceType)) {
+    return res.status(400).json({ error: "Invalid service type" });
+  }
+  
+  const db = readDB();
+  const companyIdx = db.companies?.findIndex((c) => c.id === req.params.id);
+  
+  if (companyIdx === -1) {
+    return res.status(404).json({ error: "Company not found" });
+  }
+  
+  // Find or create subscription for this company
+  let subscription = db.subscriptions?.find((s) => s.companyId === req.params.id);
+  
+  if (!subscription) {
+    return res.status(404).json({ error: "Subscription not found for this company" });
+  }
+  
+  // Find the product license for the service type
+  const productIdx = subscription.products?.findIndex((p) => p.productType === serviceType);
+  
+  if (productIdx === -1) {
+    return res.status(404).json({ error: "Product license not found for this service" });
+  }
+  
+  // Toggle the service
+  subscription.products[productIdx].isEnabled = enabled;
+  subscription.updatedAt = new Date().toISOString();
+  
+  writeDB(db);
+  
+  res.json({
+    success: true,
+    message: `Service ${serviceType} ${enabled ? "enabled" : "disabled"} for company`,
+    subscription,
+  });
+});
+
+// GET /api/companies/:id/services - Get service status for a company
+app.get("/api/companies/:id/services", (req, res) => {
+  const db = readDB();
+  const subscription = db.subscriptions?.find((s) => s.companyId === req.params.id);
+  
+  if (!subscription) {
+    return res.status(404).json({ error: "Subscription not found for this company" });
+  }
+  
+  res.json(subscription.products || []);
 });
 
 // ─── Settings Endpoints ─────────────────────────────────────────
