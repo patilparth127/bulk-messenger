@@ -1495,12 +1495,24 @@ app.post("/api/email-campaigns/send", async (req, res) => {
     smtpHost,
     smtpPort,
     contactIds,
+    companyId,
   } = req.body;
 
   if (!subject || !body || !fromEmail || !fromPassword || !contactIds?.length) {
     return res.status(400).json({
       error: "subject, body, fromEmail, fromPassword, and contactIds are required",
     });
+  }
+
+  // Validate subscription for EMAIL module
+  if (companyId) {
+    const validation = validateSubscription(companyId, ProductType.EMAIL);
+    if (!validation.valid) {
+      return res.status(403).json({ 
+        error: validation.error,
+        code: validation.code,
+      });
+    }
   }
 
   const db = readDB();
