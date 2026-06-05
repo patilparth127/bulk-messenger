@@ -599,37 +599,16 @@ app.post("/api/auth/logout", (req, res) => {
 
 // ─── User Management Endpoints (Admin only) ───────────────────────
 // GET /api/users
-app.get("/api/users", (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ error: "Authorization required" });
-  }
-
+app.get("/api/users", requireAuth, requireAdmin, (req, res) => {
   const db = readDB();
-  const requestingUser = db.users.find((u) => u.email === authHeader.replace("Bearer ", ""));
-  
-  if (!requestingUser || requestingUser.role !== UserRole.ADMIN) {
-    return res.status(403).json({ error: "Admin access required" });
-  }
-
   // Remove passwords from response
   const usersWithoutPasswords = db.users.map(({ password: _, ...user }) => user);
   res.json(usersWithoutPasswords);
 });
 
 // POST /api/users - Create new user (Admin only)
-app.post("/api/users", async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ error: "Authorization required" });
-  }
-
+app.post("/api/users", requireAuth, requireAdmin, async (req, res) => {
   const db = readDB();
-  const requestingUser = db.users.find((u) => u.email === authHeader.replace("Bearer ", ""));
-  
-  if (!requestingUser || requestingUser.role !== UserRole.ADMIN) {
-    return res.status(403).json({ error: "Admin access required" });
-  }
 
   const { username, password, email, name, role, mobileNumber, companyId, companyCode, whatsappNumber, emailHost, emailPassword, emailPort } = req.body;
 
@@ -684,20 +663,9 @@ app.post("/api/users", async (req, res) => {
 });
 
 // PUT /api/users/:id - Update user (Admin only)
-app.put("/api/users/:id", (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ error: "Authorization required" });
-  }
-
-  const db = readDB();
-  const requestingUser = db.users.find((u) => u.email === authHeader.replace("Bearer ", ""));
-  
-  if (!requestingUser || requestingUser.role !== UserRole.ADMIN) {
-    return res.status(403).json({ error: "Admin access required" });
-  }
-
+app.put("/api/users/:id", requireAuth, requireAdmin, async (req, res) => {
   const userId = req.params.id;
+  const db = readDB();
   const userIndex = db.users.findIndex((u) => u.id === userId);
 
   if (userIndex === -1) {
@@ -709,7 +677,7 @@ app.put("/api/users/:id", (req, res) => {
   // Update user
   if (name) db.users[userIndex].name = name;
   if (role) db.users[userIndex].role = role;
-  if (password) db.users[userIndex].password = password; // In production, hash this
+  if (password) db.users[userIndex].password = await hashPassword(password);
 
   db.users[userIndex].updatedAt = new Date().toISOString();
   writeDB(db);
@@ -721,23 +689,12 @@ app.put("/api/users/:id", (req, res) => {
 });
 
 // DELETE /api/users/:id - Delete user (Admin only)
-app.delete("/api/users/:id", (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ error: "Authorization required" });
-  }
-
-  const db = readDB();
-  const requestingUser = db.users.find((u) => u.email === authHeader.replace("Bearer ", ""));
-  
-  if (!requestingUser || requestingUser.role !== UserRole.ADMIN) {
-    return res.status(403).json({ error: "Admin access required" });
-  }
-
+app.delete("/api/users/:id", requireAuth, requireAdmin, (req, res) => {
   const userId = req.params.id;
+  const db = readDB();
 
   // Prevent deleting yourself
-  if (userId === requestingUser.id) {
+  if (userId === req.user.userId) {
     return res.status(400).json({ error: "Cannot delete your own account" });
   }
 
@@ -758,13 +715,13 @@ app.delete("/api/users/:id", (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 
 // GET /api/companies
-app.get("/api/companies", (req, res) => {
+app.get("/api/companies", requireAuth, requireAdmin, (req, res) => {
   const db = readDB();
   res.json(db.companies || []);
 });
 
 // GET /api/companies/:id
-app.get("/api/companies/:id", (req, res) => {
+app.get("/api/companies/:id", requireAuth, requireAdmin, (req, res) => {
   const db = readDB();
   const company = db.companies?.find((c) => c.id === req.params.id);
   if (!company) {
@@ -774,7 +731,7 @@ app.get("/api/companies/:id", (req, res) => {
 });
 
 // POST /api/companies
-app.post("/api/companies", async (req, res) => {
+app.post("/api/companies", requireAuth, requireAdmin, async (req, res) => {
   const { name, domain, contactEmail, contactPhone, address, companyCode, password } = req.body;
 
   if (!name || !contactEmail || !contactPhone || !companyCode || !password) {
@@ -806,6 +763,30 @@ app.post("/api/companies", async (req, res) => {
 
   db.companies = db.companies || [];
   db.companies.push(company);
+  
+  // Create a default admin user for this company
+  const defaultUser = {
+    id: uuidv4(),
+    username: contactEmail.split('@')[0],
+    password: hashedPassword,
+    email: String(contactEmail).trim().toLowerCase(),
+    name: String(name).trim(),
+    mobileNumber: String(contactPhone).trim(),
+    whatsappNumber: null,
+    emailHost: null,
+    emailPassword: null,
+    emailPort: 587,
+    role: UserRole.ADMIN,
+    authMethod: AuthMethod.USERNAME_PASSWORD,
+    companyId: company.id,
+    companyCode: String(companyCode).trim().toUpperCase(),
+    createdAt: new Date().toISOString(),
+    lastLoginAt: new Date().toISOString(),
+  };
+  
+  db.users = db.users || [];
+  db.users.push(defaultUser);
+  
   writeDB(db);
 
   // Remove password from response
@@ -815,7 +796,7 @@ app.post("/api/companies", async (req, res) => {
 });
 
 // PUT /api/companies/:id
-app.put("/api/companies/:id", (req, res) => {
+app.put("/api/companies/:id", requireAuth, requireAdmin, (req, res) => {
   const { name, domain, contactEmail, contactPhone, address, isActive } = req.body;
 
   const db = readDB();
@@ -839,7 +820,7 @@ app.put("/api/companies/:id", (req, res) => {
 });
 
 // DELETE /api/companies/:id
-app.delete("/api/companies/:id", (req, res) => {
+app.delete("/api/companies/:id", requireAuth, requireAdmin, (req, res) => {
   const db = readDB();
   const idx = db.companies?.findIndex((c) => c.id === req.params.id);
 
