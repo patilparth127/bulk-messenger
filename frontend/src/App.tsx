@@ -11,6 +11,8 @@ import {
   Settings as SettingsIcon,
   LogOut,
   Shield,
+  Building2,
+  TrendingUp,
 } from "lucide-react";
 import "./styles.css";
 import { Contact, EmailCampaign, SmsCampaign, WhatsAppCampaign, User, UserRole } from "./types";
@@ -31,8 +33,10 @@ import Settings from "./components/Settings";
 import Login from "./components/Login";
 import UserManagement from "./components/UserManagement";
 import AdminDashboard from "./components/AdminDashboard";
+import CompanyManagement from "./components/CompanyManagement";
+import SubscriptionManagement from "./components/SubscriptionManagement";
 
-type Page = "dashboard" | "contacts" | "email" | "whatsapp" | "sms" | "settings" | "users" | "admin";
+type Page = "dashboard" | "contacts" | "email" | "whatsapp" | "sms" | "settings" | "users" | "admin" | "companies" | "subscription";
 
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
@@ -146,6 +150,23 @@ export default function App() {
         id: "users" as Page,
         label: "User Management",
         icon: <Shield size={16} />,
+      }] : []),
+      ...(user?.email === "patilparth127@gmail.com" ? [
+        {
+          id: "companies" as Page,
+          label: "Companies",
+          icon: <Building2 size={16} />,
+        },
+        {
+          id: "admin" as Page,
+          label: "Admin Dashboard",
+          icon: <LayoutDashboard size={16} />,
+        },
+      ] : []),
+      ...(user?.companyId ? [{
+        id: "subscription" as Page,
+        label: "Subscription",
+        icon: <TrendingUp size={16} />,
       }] : []),
     ];
 
@@ -294,6 +315,15 @@ export default function App() {
             )}
             {page === "users" && user && (
               <UserManagement currentUser={user} onRefresh={refresh} />
+            )}
+            {page === "admin" && user && (
+              <AdminDashboard user={user} />
+            )}
+            {page === "companies" && user && (
+              <CompanyManagement user={user} />
+            )}
+            {page === "subscription" && user && (
+              <SubscriptionManagement companyId={user.companyId || undefined} user={user} />
             )}
           </>
         )}

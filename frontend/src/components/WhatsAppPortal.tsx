@@ -24,6 +24,7 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
   const [showRenewalPopup, setShowRenewalPopup] = useState(false);
   const [renewalError, setRenewalError] = useState("");
   const [renewalCode, setRenewalCode] = useState("");
+  const [contactSearch, setContactSearch] = useState("");
   
   // Reply buttons simulation
   const [hasReplyButtons, setHasReplyButtons] = useState(false);
@@ -121,6 +122,15 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
     s.has(id) ? s.delete(id) : s.add(id);
     setSelectedIds(s);
   };
+  
+  // Filter contacts based on search query
+  const filteredWaContacts = waContacts.filter((c) => {
+    const searchLower = contactSearch.toLowerCase();
+    return (
+      c.name.toLowerCase().includes(searchLower) ||
+      c.phone.toLowerCase().includes(searchLower)
+    );
+  });
 
   const handleSend = async () => {
     let valid = true;
@@ -360,14 +370,24 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
                 </div>
               ) : (
                 <>
+                  <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--border-light)" }}>
+                    <input
+                      type="text"
+                      placeholder="Search contacts..."
+                      className="form-input"
+                      style={{ fontSize: "0.85rem", padding: "8px 12px" }}
+                      value={contactSearch}
+                      onChange={(e) => setContactSearch(e.target.value)}
+                    />
+                  </div>
                   <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--border-light)", display: "flex", gap: 8, alignItems: "center" }}>
-                    <input type="checkbox" className="wa" checked={selectedIds.size === waContacts.length} onChange={toggleAll} />
+                    <input type="checkbox" className="wa" checked={selectedIds.size === filteredWaContacts.length} onChange={toggleAll} />
                     <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>
-                      Select All ({waContacts.length})
+                      Select All ({filteredWaContacts.length})
                     </span>
                   </div>
                   <div style={{ maxHeight: 420, overflowY: "auto", padding: "4px 16px" }}>
-                    {waContacts.map((c) => (
+                    {filteredWaContacts.map((c) => (
                       <div key={c.id} className="checkbox-row">
                         <input type="checkbox" className="wa" checked={selectedIds.has(c.id)} onChange={() => toggle(c.id)} />
                         <div style={{ flex: 1 }}>
@@ -383,6 +403,11 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
                         )}
                       </div>
                     ))}
+                    {filteredWaContacts.length === 0 && contactSearch && (
+                      <div style={{ padding: "20px", textAlign: "center", color: "var(--text-muted)" }}>
+                        No contacts found matching "{contactSearch}"
+                      </div>
+                    )}
                   </div>
                 </>
               )}

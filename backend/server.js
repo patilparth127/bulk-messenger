@@ -56,6 +56,24 @@ function verifyToken(token) {
   }
 }
 
+// Middleware to extract user from JWT token
+function authenticateUser(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ error: "Authorization required" });
+  }
+  
+  const token = authHeader.replace("Bearer ", "");
+  const decoded = verifyToken(token);
+  
+  if (!decoded) {
+    return res.status(401).json({ error: "Invalid token" });
+  }
+  
+  req.user = decoded;
+  next();
+}
+
 async function hashPassword(password) {
   const salt = await bcrypt.genSalt(10);
   return bcrypt.hash(password, salt);
@@ -1284,9 +1302,22 @@ async function sendWhatsAppMessage(number, message) {
 // ═══════════════════════════════════════════════════════════════
 
 // GET /api/contacts
-app.get("/api/contacts", (req, res) => {
+app.get("/api/contacts", authenticateUser, (req, res) => {
   const db = readDB();
-  res.json(db.contacts);
+  
+  // If user is master admin, return all contacts
+  if (req.user.email === MASTER_ADMIN_EMAIL) {
+    return res.json(db.contacts);
+  }
+  
+  // Otherwise, filter by company ID
+  if (req.user.companyId) {
+    const companyContacts = db.contacts.filter((c) => c.companyId === req.user.companyId);
+    return res.json(companyContacts);
+  }
+  
+  // If no company ID, return empty array
+  res.json([]);
 });
 
 // POST /api/contacts (single)
@@ -1480,9 +1511,22 @@ app.post("/api/upload-excel", upload.single("file"), (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 
 // GET /api/email-campaigns
-app.get("/api/email-campaigns", (req, res) => {
+app.get("/api/email-campaigns", authenticateUser, (req, res) => {
   const db = readDB();
-  res.json(db.email_campaigns);
+  
+  // If user is master admin, return all campaigns
+  if (req.user.email === MASTER_ADMIN_EMAIL) {
+    return res.json(db.email_campaigns);
+  }
+  
+  // Otherwise, filter by company ID
+  if (req.user.companyId) {
+    const companyCampaigns = db.email_campaigns.filter((c) => c.companyId === req.user.companyId);
+    return res.json(companyCampaigns);
+  }
+  
+  // If no company ID, return empty array
+  res.json([]);
 });
 
 // POST /api/email-campaigns/send
@@ -1685,9 +1729,22 @@ app.post("/api/whatsapp-reset", async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 
 // GET /api/whatsapp-campaigns
-app.get("/api/whatsapp-campaigns", (req, res) => {
+app.get("/api/whatsapp-campaigns", authenticateUser, (req, res) => {
   const db = readDB();
-  res.json(db.whatsapp_campaigns);
+  
+  // If user is master admin, return all campaigns
+  if (req.user.email === MASTER_ADMIN_EMAIL) {
+    return res.json(db.whatsapp_campaigns);
+  }
+  
+  // Otherwise, filter by company ID
+  if (req.user.companyId) {
+    const companyCampaigns = db.whatsapp_campaigns.filter((c) => c.companyId === req.user.companyId);
+    return res.json(companyCampaigns);
+  }
+  
+  // If no company ID, return empty array
+  res.json([]);
 });
 
 // POST /api/whatsapp-campaigns/send
@@ -1939,9 +1996,22 @@ app.get("/api/sms/gateway-status", async (req, res) => {
 });
 
 // GET /api/sms-campaigns
-app.get("/api/sms-campaigns", (req, res) => {
+app.get("/api/sms-campaigns", authenticateUser, (req, res) => {
   const db = readDB();
-  res.json(db.sms_campaigns || []);
+  
+  // If user is master admin, return all campaigns
+  if (req.user.email === MASTER_ADMIN_EMAIL) {
+    return res.json(db.sms_campaigns || []);
+  }
+  
+  // Otherwise, filter by company ID
+  if (req.user.companyId) {
+    const companyCampaigns = (db.sms_campaigns || []).filter((c) => c.companyId === req.user.companyId);
+    return res.json(companyCampaigns);
+  }
+  
+  // If no company ID, return empty array
+  res.json([]);
 });
 
 // GET /api/sms-logs

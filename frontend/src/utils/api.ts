@@ -115,3 +115,57 @@ export const updateSettings = (settings: Partial<AppSettings>) =>
 
 export const updateDelaySettings = (type: "whatsapp" | "email" | "sms", settings: Partial<DelaySettings>) =>
   api.put<DelaySettings>(`/settings/delay/${type}`, settings).then((r) => r.data);
+
+// ─── Companies ─────────────────────────────────────────────────────
+export const getCompanies = () =>
+  api.get("/companies").then((r) => r.data);
+
+export const getCompany = (id: string) =>
+  api.get(`/companies/${id}`).then((r) => r.data);
+
+export const createCompany = (data: any) =>
+  api.post("/companies", data).then((r) => r.data);
+
+export const updateCompany = (id: string, data: any) =>
+  api.put(`/companies/${id}`, data).then((r) => r.data);
+
+export const deleteCompany = (id: string) =>
+  api.delete(`/companies/${id}`).then((r) => r.data);
+
+export const toggleCompanyService = (companyId: string, serviceType: string, enabled: boolean) =>
+  api.put(`/companies/${companyId}/toggle-service`, { serviceType, enabled }).then((r) => r.data);
+
+export const getCompanyServices = (companyId: string) =>
+  api.get(`/companies/${companyId}/services`).then((r) => r.data);
+
+// ─── Subscriptions ───────────────────────────────────────────────
+export const getSubscriptions = () =>
+  api.get("/subscriptions").then((r) => r.data);
+
+export const getSubscription = (id: string) =>
+  api.get(`/subscriptions/${id}`).then((r) => r.data);
+
+export const getCompanySubscription = (companyId: string) =>
+  api.get(`/companies/${companyId}/subscription`).then((r) => r.data);
+
+export const createSubscription = (data: any) =>
+  api.post("/subscriptions", data).then((r) => r.data);
+
+export const updateSubscription = (id: string, data: any) =>
+  api.put(`/subscriptions/${id}`, data).then((r) => r.data);
+
+export const deleteSubscription = (id: string) =>
+  api.delete(`/subscriptions/${id}`).then((r) => r.data);
+
+// ─── Notifications (Admin only) ───────────────────────────────────
+export const getNotifications = () =>
+  api.get("/notifications").then((r) => r.data);
+
+export const markNotificationAsRead = (id: string) =>
+  api.put(`/notifications/${id}/read`).then((r) => r.data);
+
+export const markAllNotificationsAsRead = () =>
+  api.put("/notifications/read-all").then((r) => r.data);
+
+export const deleteNotification = (id: string) =>
+  api.delete(`/notifications/${id}`).then((r) => r.data);

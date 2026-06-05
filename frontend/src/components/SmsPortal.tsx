@@ -50,6 +50,7 @@ export default function SmsPortal({ contacts, campaigns, onRefresh }: Props) {
   const [showRenewalPopup, setShowRenewalPopup] = useState(false);
   const [renewalError, setRenewalError] = useState("");
   const [renewalCode, setRenewalCode] = useState("");
+  const [contactSearch, setContactSearch] = useState("");
   const [gatewayStatus, setGatewayStatus] = useState<{ connected: boolean; device: string | null; message: string } | null>(null);
   const [checkingGateway, setCheckingGateway] = useState(false);
   const [previewContact, setPreviewContact] = useState<Contact | null>(null);
@@ -169,8 +170,8 @@ export default function SmsPortal({ contacts, campaigns, onRefresh }: Props) {
   };
 
   const toggleAll = () => {
-    if (selectedIds.size === phoneContacts.length) setSelectedIds(new Set());
-    else setSelectedIds(new Set(phoneContacts.map((c) => c.id)));
+    if (selectedIds.size === filteredSmsContacts.length) setSelectedIds(new Set());
+    else setSelectedIds(new Set(filteredSmsContacts.map((c) => c.id)));
   };
 
   const toggle = (id: string) => {
@@ -178,6 +179,17 @@ export default function SmsPortal({ contacts, campaigns, onRefresh }: Props) {
     s.has(id) ? s.delete(id) : s.add(id);
     setSelectedIds(s);
   };
+
+  const smsContacts = contacts.filter((c) => c.phone && c.phone.trim());
+  
+  // Filter contacts based on search query
+  const filteredSmsContacts = smsContacts.filter((c) => {
+    const searchLower = contactSearch.toLowerCase();
+    return (
+      c.name.toLowerCase().includes(searchLower) ||
+      c.phone.toLowerCase().includes(searchLower)
+    );
+  });
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -537,7 +549,7 @@ export default function SmsPortal({ contacts, campaigns, onRefresh }: Props) {
               </span>
             </div>
             <div className="card-body" style={{ padding: 0 }}>
-              {phoneContacts.length === 0 ? (
+              {smsContacts.length === 0 ? (
                 <div className="empty-state">
                   <div className="empty-icon">📵</div>
                   <h3>No phone contacts</h3>
@@ -545,19 +557,29 @@ export default function SmsPortal({ contacts, campaigns, onRefresh }: Props) {
                 </div>
               ) : (
                 <>
+                  <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--border-light)" }}>
+                    <input
+                      type="text"
+                      placeholder="Search contacts..."
+                      className="form-input"
+                      style={{ fontSize: "0.85rem", padding: "8px 12px" }}
+                      value={contactSearch}
+                      onChange={(e) => setContactSearch(e.target.value)}
+                    />
+                  </div>
                   <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--border-light)", display: "flex", gap: 8, alignItems: "center" }}>
                     <input
                       type="checkbox"
                       style={{ accentColor: "#7c3aed" }}
-                      checked={selectedIds.size === phoneContacts.length}
+                      checked={selectedIds.size === filteredSmsContacts.length}
                       onChange={toggleAll}
                     />
                     <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>
-                      Select All ({phoneContacts.length})
+                      Select All ({filteredSmsContacts.length})
                     </span>
                   </div>
                   <div style={{ maxHeight: 420, overflowY: "auto", padding: "4px 16px" }}>
-                    {phoneContacts.map((c) => (
+                    {filteredSmsContacts.map((c) => (
                       <div key={c.id} className="checkbox-row">
                         <input
                           type="checkbox"
@@ -578,6 +600,11 @@ export default function SmsPortal({ contacts, campaigns, onRefresh }: Props) {
                         )} */}
                       </div>
                     ))}
+                    {filteredSmsContacts.length === 0 && contactSearch && (
+                      <div style={{ padding: "20px", textAlign: "center", color: "var(--text-muted)" }}>
+                        No contacts found matching "{contactSearch}"
+                      </div>
+                    )}
                   </div>
                 </>
               )}

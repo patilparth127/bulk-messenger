@@ -22,6 +22,7 @@ export default function EmailPortal({ contacts, campaigns, onRefresh }: Props) {
   const [showRenewalPopup, setShowRenewalPopup] = useState(false);
   const [renewalError, setRenewalError] = useState("");
   const [renewalCode, setRenewalCode] = useState("");
+  const [contactSearch, setContactSearch] = useState("");
   
   // Table controls for campaign history
   const [historySearch, setHistorySearch] = useState("");
@@ -168,6 +169,15 @@ export default function EmailPortal({ contacts, campaigns, onRefresh }: Props) {
   };
 
   const emailContacts = contacts.filter((c) => c.email);
+  
+  // Filter contacts based on search query
+  const filteredEmailContacts = emailContacts.filter((c) => {
+    const searchLower = contactSearch.toLowerCase();
+    return (
+      c.name.toLowerCase().includes(searchLower) ||
+      c.email.toLowerCase().includes(searchLower)
+    );
+  });
 
   return (
     <div>
@@ -326,14 +336,24 @@ export default function EmailPortal({ contacts, campaigns, onRefresh }: Props) {
                 </div>
               ) : (
                 <>
+                  <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--border-light)" }}>
+                    <input
+                      type="text"
+                      placeholder="Search contacts..."
+                      className="form-input"
+                      style={{ fontSize: "0.85rem", padding: "8px 12px" }}
+                      value={contactSearch}
+                      onChange={(e) => setContactSearch(e.target.value)}
+                    />
+                  </div>
                   <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--border-light)", display: "flex", gap: 8, alignItems: "center" }}>
-                    <input type="checkbox" checked={selectedIds.size === emailContacts.length} onChange={toggleAll} />
+                    <input type="checkbox" checked={selectedIds.size === filteredEmailContacts.length} onChange={toggleAll} />
                     <span style={{ fontSize: "0.8rem", color: "var(--text-secondary)", fontWeight: 600 }}>
-                      Select All ({emailContacts.length})
+                      Select All ({filteredEmailContacts.length})
                     </span>
                   </div>
                   <div style={{ maxHeight: 360, overflowY: "auto", padding: "4px 16px" }}>
-                    {emailContacts.map((c) => (
+                    {filteredEmailContacts.map((c) => (
                       <div key={c.id} className="checkbox-row">
                         <input type="checkbox" checked={selectedIds.has(c.id)} onChange={() => toggle(c.id)} />
                         <div style={{ flex: 1 }}>
@@ -347,6 +367,11 @@ export default function EmailPortal({ contacts, campaigns, onRefresh }: Props) {
                         )}
                       </div>
                     ))}
+                    {filteredEmailContacts.length === 0 && contactSearch && (
+                      <div style={{ padding: "20px", textAlign: "center", color: "var(--text-muted)" }}>
+                        No contacts found matching "{contactSearch}"
+                      </div>
+                    )}
                   </div>
                 </>
               )}
