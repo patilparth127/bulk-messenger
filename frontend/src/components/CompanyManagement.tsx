@@ -19,6 +19,7 @@ export default function CompanyManagement({ user }: Props) {
     contactEmail: "",
     contactPhone: "",
     companyCode: "",
+    password: "",
     address: {
       street: "",
       city: "",
@@ -51,6 +52,7 @@ export default function CompanyManagement({ user }: Props) {
     if (!form.contactPhone.trim()) e.contactPhone = "Contact phone is required";
     if (!form.companyCode.trim()) e.companyCode = "Company code is required";
     if (form.companyCode.length < 3) e.companyCode = "Company code must be at least 3 characters";
+    if (!editingCompany && !form.password.trim()) e.password = "Company password is required";
     return e;
   };
 
@@ -87,6 +89,7 @@ export default function CompanyManagement({ user }: Props) {
       contactEmail: company.contactEmail,
       contactPhone: company.contactPhone,
       companyCode: company.companyCode,
+      password: "",
       address: company.address || {
         street: "",
         city: "",
@@ -116,6 +119,7 @@ export default function CompanyManagement({ user }: Props) {
       contactEmail: "",
       contactPhone: "",
       companyCode: "",
+      password: "",
       address: {
         street: "",
         city: "",
@@ -289,6 +293,21 @@ export default function CompanyManagement({ user }: Props) {
                   />
                   {errors.companyCode && <span className="form-error">{errors.companyCode}</span>}
                 </div>
+                {!editingCompany && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Company Password *
+                    </label>
+                    <input
+                      type="password"
+                      className="form-input"
+                      value={form.password}
+                      onChange={(e) => setForm({ ...form, password: e.target.value })}
+                      placeholder="Enter company password"
+                    />
+                    {errors.password && <span className="form-error">{errors.password}</span>}
+                  </div>
+                )}
               </div>
 
               <div>

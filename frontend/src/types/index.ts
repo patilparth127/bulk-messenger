@@ -179,6 +179,10 @@ export interface User {
   authMethod: AuthMethod;
   companyId: string | null;
   companyCode: string | null;
+  mobileNumber?: string;
+  whatsappNumber?: string;
+  emailHost?: string;
+  emailPort?: number;
   createdAt: string;
   lastLoginAt: string;
 }
@@ -205,6 +209,13 @@ export interface CreateUserPayload {
   email: string;
   name: string;
   role: UserRole;
+  mobileNumber: string;
+  companyId?: string;
+  companyCode?: string;
+  whatsappNumber?: string;
+  emailHost?: string;
+  emailPassword?: string;
+  emailPort?: number;
 }
 
 // ─── Settings ───────────────────────────────────────────────────────

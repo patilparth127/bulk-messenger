@@ -11,7 +11,7 @@ interface Props {
 export default function Login({ onLogin }: Props) {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"google" | "password">("password");
-  const [credentials, setCredentials] = useState({ username: "", password: "", companyCode: "" });
+  const [credentials, setCredentials] = useState({ email: "", password: "", companyCode: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleGoogleLogin = async () => {
@@ -42,11 +42,11 @@ export default function Login({ onLogin }: Props) {
     setErrors({});
     
     const errs: Record<string, string> = {};
-    if (!credentials.username.trim()) errs.username = "Username is required";
+    if (!credentials.email.trim()) errs.email = "Email is required";
     if (!credentials.password.trim()) errs.password = "Password is required";
     
     // Only require company code for non-master admin users
-    if (credentials.username !== "patilparth127@gmail.com" && !credentials.companyCode.trim()) {
+    if (credentials.email !== "patilparth127@gmail.com" && !credentials.companyCode.trim()) {
       errs.companyCode = "Company code is required";
     }
     
@@ -58,7 +58,7 @@ export default function Login({ onLogin }: Props) {
     setLoading(true);
     try {
       const response = await login({
-        username: credentials.username,
+        email: credentials.email,
         password: credentials.password,
         companyCode: credentials.companyCode,
         authMethod: AuthMethod.USERNAME_PASSWORD,
@@ -158,14 +158,15 @@ export default function Login({ onLogin }: Props) {
                   />
                   <input
                     className="form-input"
+                    type="email"
                     style={{ paddingLeft: 40 }}
-                    placeholder="Enter your username"
-                    value={credentials.username}
-                    onChange={(e) => setCredentials({ ...credentials, username: e.target.value })}
+                    placeholder="Enter your email"
+                    value={credentials.email}
+                    onChange={(e) => setCredentials({ ...credentials, email: e.target.value })}
                     disabled={loading}
                   />
                 </div>
-                {errors.username && <span className="form-error">{errors.username}</span>}
+                {errors.email && <span className="form-error">{errors.email}</span>}
               </div>
 
               <div style={{ marginBottom: 24 }}>
@@ -219,6 +220,9 @@ export default function Login({ onLogin }: Props) {
                 {errors.companyCode && <span className="form-error">{errors.companyCode}</span>}
                 <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: 4 }}>
                   Not required for Master Admin (patilparth127@gmail.com)
+                </p>
+                <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: 4 }}>
+                  Use your registered email to login
                 </p>
               </div>
 

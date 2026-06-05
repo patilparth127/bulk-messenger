@@ -21,6 +21,13 @@ export default function UserManagement({ currentUser, onRefresh }: Props) {
     email: "",
     name: "",
     role: UserRole.USER,
+    mobileNumber: "",
+    companyId: undefined,
+    companyCode: "",
+    whatsappNumber: "",
+    emailHost: "",
+    emailPassword: "",
+    emailPort: 587,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -125,6 +132,13 @@ export default function UserManagement({ currentUser, onRefresh }: Props) {
         email: user.email,
         name: user.name,
         role: user.role,
+        mobileNumber: user.mobileNumber || "",
+        companyId: user.companyId || undefined,
+        companyCode: user.companyCode || "",
+        whatsappNumber: user.whatsappNumber || "",
+        emailHost: user.emailHost || "",
+        emailPassword: "",
+        emailPort: user.emailPort || 587,
       });
     } else {
       setEditingUser(null);
@@ -134,6 +148,13 @@ export default function UserManagement({ currentUser, onRefresh }: Props) {
         email: "",
         name: "",
         role: UserRole.USER,
+        mobileNumber: "",
+        companyId: undefined,
+        companyCode: "",
+        whatsappNumber: "",
+        emailHost: "",
+        emailPassword: "",
+        emailPort: 587,
       });
     }
     setErrors({});
@@ -149,6 +170,13 @@ export default function UserManagement({ currentUser, onRefresh }: Props) {
       email: "",
       name: "",
       role: UserRole.USER,
+      mobileNumber: "",
+      companyId: undefined,
+      companyCode: "",
+      whatsappNumber: "",
+      emailHost: "",
+      emailPassword: "",
+      emailPort: 587,
     });
     setErrors({});
   };
@@ -159,6 +187,7 @@ export default function UserManagement({ currentUser, onRefresh }: Props) {
     if (!editingUser && !form.password.trim()) errs.password = "Password is required";
     if (!form.email.trim()) errs.email = "Email is required";
     if (!form.name.trim()) errs.name = "Name is required";
+    if (!form.mobileNumber.trim()) errs.mobileNumber = "Mobile number is required";
     if (!form.email.includes("@")) errs.email = "Invalid email format";
     return errs;
   };
@@ -386,6 +415,65 @@ export default function UserManagement({ currentUser, onRefresh }: Props) {
                     <option value={UserRole.USER}>User - Standard access</option>
                     <option value={UserRole.ADMIN}>Admin - Full access</option>
                   </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Mobile Number *</label>
+                  <input
+                    className="form-input"
+                    type="tel"
+                    value={form.mobileNumber}
+                    onChange={(e) => setForm({ ...form, mobileNumber: e.target.value })}
+                    placeholder="+1234567890"
+                  />
+                  {errors.mobileNumber && <span className="form-error">{errors.mobileNumber}</span>}
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Company Code</label>
+                  <input
+                    className="form-input"
+                    value={form.companyCode}
+                    onChange={(e) => setForm({ ...form, companyCode: e.target.value.toUpperCase() })}
+                    placeholder="COMPANY_CODE"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">WhatsApp Number</label>
+                  <input
+                    className="form-input"
+                    type="tel"
+                    value={form.whatsappNumber}
+                    onChange={(e) => setForm({ ...form, whatsappNumber: e.target.value })}
+                    placeholder="+1234567890"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Email Host (SMTP)</label>
+                  <input
+                    className="form-input"
+                    value={form.emailHost}
+                    onChange={(e) => setForm({ ...form, emailHost: e.target.value })}
+                    placeholder="smtp.gmail.com"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Email Password</label>
+                  <input
+                    className="form-input"
+                    type="password"
+                    value={form.emailPassword}
+                    onChange={(e) => setForm({ ...form, emailPassword: e.target.value })}
+                    placeholder="Email app password"
+                  />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Email Port</label>
+                  <input
+                    className="form-input"
+                    type="number"
+                    value={form.emailPort}
+                    onChange={(e) => setForm({ ...form, emailPort: parseInt(e.target.value) || 587 })}
+                    placeholder="587"
+                  />
                 </div>
               </div>
               <div className="modal-footer">

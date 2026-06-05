@@ -23,6 +23,29 @@ const BASE = "/api";
 
 const api = axios.create({ baseURL: BASE });
 
+// Add JWT token to all requests
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("authToken");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// Handle 401 errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem("authToken");
+      localStorage.removeItem("userEmail");
+      localStorage.removeItem("userName");
+      window.location.href = "/";
+    }
+    return Promise.reject(error);
+  }
+);
+
 // ─── Contacts ────────────────────────────────────────────────
 export const getContacts = () =>
   api.get<Contact[]>("/contacts").then((r) => r.data);

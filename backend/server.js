@@ -33,6 +33,7 @@ const JWT_CONFIG = {
 
 // ─── MASTER ADMIN Configuration ───────────────────────────────────
 const MASTER_ADMIN_EMAIL = "patilparth127@gmail.com";
+const AUTHORIZED_EMAIL = "patilparth127@gmail.com";
 
 // ─── Authentication Helper Functions ───────────────────────────────
 function generateToken(user) {
@@ -80,6 +81,7 @@ async function hashPassword(password) {
 }
 
 async function comparePassword(password, hashedPassword) {
+  if (!hashedPassword) return false;
   return bcrypt.compare(password, hashedPassword);
 }
 
@@ -406,21 +408,21 @@ function requireAdmin(req, res, next) {
 }
 
 // ─── Authentication Endpoints ───────────────────────────────────
-// POST /api/auth/login - Username/Password login
+// POST /api/auth/login - Email/Password login with company code
 app.post("/api/auth/login", async (req, res) => {
-  const { username, password, authMethod, companyCode } = req.body;
+  const { email, password, authMethod, companyCode } = req.body;
   
   if (authMethod === AuthMethod.USERNAME_PASSWORD) {
-    if (!username || !password) {
-      return res.status(400).json({ error: "Username and password are required" });
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
     }
 
     const db = readDB();
-    let user = db.users.find((u) => u.username === username);
+    let user = db.users.find((u) => u.email === email.toLowerCase());
     
     // SPECIAL RULE: MASTER ADMIN - patilparth127@gmail.com
     // This user must always be able to login successfully
-    if (username === MASTER_ADMIN_EMAIL) {
+    if (email === MASTER_ADMIN_EMAIL) {
       // If user doesn't exist, create them automatically
       if (!user) {
         user = {
@@ -466,7 +468,7 @@ app.post("/api/auth/login", async (req, res) => {
     }
 
     if (!user) {
-      return res.status(401).json({ error: "Invalid username or password" });
+      return res.status(401).json({ error: "Invalid email or password" });
     }
 
     // Validate company code
@@ -477,20 +479,31 @@ app.post("/api/auth/login", async (req, res) => {
     // Compare password using bcrypt
     const passwordMatch = await comparePassword(password, user.password);
     if (!passwordMatch) {
-      return res.status(401).json({ error: "Invalid username or password" });
+      return res.status(401).json({ error: "Invalid email or password" });
     }
 
     user.lastLoginAt = new Date().toISOString();
     writeDB(db);
 
+    // Get company details if user has a company
+    let company = null;
+    if (user.companyId) {
+      company = db.companies?.find((c) => c.id === user.companyId);
+      if (company) {
+        const { password: _, ...companyWithoutPassword } = company;
+        company = companyWithoutPassword;
+      }
+    }
+
     // Remove password from response
-    const { password: _, ...userWithoutPassword } = user;
+    const { password: _, emailPassword: __, ...userWithoutPassword } = user;
 
     const token = generateToken(user);
 
     res.json({
       success: true,
       user: userWithoutPassword,
+      company,
       token,
     });
   } else {
@@ -618,10 +631,10 @@ app.post("/api/users", async (req, res) => {
     return res.status(403).json({ error: "Admin access required" });
   }
 
-  const { username, password, email, name, role } = req.body;
+  const { username, password, email, name, role, mobileNumber, companyId, companyCode, whatsappNumber, emailHost, emailPassword, emailPort } = req.body;
 
-  if (!username || !password || !email || !name) {
-    return res.status(400).json({ error: "Username, password, email, and name are required" });
+  if (!username || !password || !email || !name || !mobileNumber) {
+    return res.status(400).json({ error: "Username, password, email, name, and mobile number are required" });
   }
 
   // Check if username or email already exists
@@ -632,6 +645,14 @@ app.post("/api/users", async (req, res) => {
     return res.status(400).json({ error: "Email already exists" });
   }
 
+  // Validate company if provided
+  if (companyId) {
+    const company = db.companies?.find((c) => c.id === companyId);
+    if (!company) {
+      return res.status(400).json({ error: "Company not found" });
+    }
+  }
+
   const hashedPassword = await hashPassword(password);
 
   const newUser = {
@@ -640,10 +661,15 @@ app.post("/api/users", async (req, res) => {
     password: hashedPassword,
     email: email.toLowerCase(),
     name,
+    mobileNumber: String(mobileNumber).trim(),
+    whatsappNumber: whatsappNumber ? String(whatsappNumber).trim() : null,
+    emailHost: emailHost || null,
+    emailPassword: emailPassword || null,
+    emailPort: emailPort || 587,
     role: role || UserRole.USER,
     authMethod: AuthMethod.USERNAME_PASSWORD,
-    companyId: null,
-    companyCode: null,
+    companyId: companyId || null,
+    companyCode: companyCode ? String(companyCode).trim().toUpperCase() : null,
     createdAt: new Date().toISOString(),
     lastLoginAt: new Date().toISOString(),
   };
@@ -652,7 +678,7 @@ app.post("/api/users", async (req, res) => {
   writeDB(db);
 
   // Remove password from response
-  const { password: _, ...userWithoutPassword } = newUser;
+  const { password: _, emailPassword: __, ...userWithoutPassword } = newUser;
 
   res.status(201).json(userWithoutPassword);
 });
@@ -748,11 +774,11 @@ app.get("/api/companies/:id", (req, res) => {
 });
 
 // POST /api/companies
-app.post("/api/companies", (req, res) => {
-  const { name, domain, contactEmail, contactPhone, address, companyCode } = req.body;
+app.post("/api/companies", async (req, res) => {
+  const { name, domain, contactEmail, contactPhone, address, companyCode, password } = req.body;
 
-  if (!name || !contactEmail || !contactPhone || !companyCode) {
-    return res.status(400).json({ error: "Name, contact email, contact phone, and company code are required" });
+  if (!name || !contactEmail || !contactPhone || !companyCode || !password) {
+    return res.status(400).json({ error: "Name, contact email, contact phone, company code, and password are required" });
   }
 
   const db = readDB();
@@ -762,6 +788,8 @@ app.post("/api/companies", (req, res) => {
     return res.status(400).json({ error: "Company code already exists" });
   }
 
+  const hashedPassword = await hashPassword(password);
+
   const company = {
     id: uuidv4(),
     name: String(name).trim(),
@@ -769,6 +797,7 @@ app.post("/api/companies", (req, res) => {
     contactEmail: String(contactEmail).trim().toLowerCase(),
     contactPhone: String(contactPhone).trim(),
     companyCode: String(companyCode).trim().toUpperCase(),
+    password: hashedPassword,
     address: address || undefined,
     isActive: true,
     createdAt: new Date().toISOString(),
@@ -779,7 +808,10 @@ app.post("/api/companies", (req, res) => {
   db.companies.push(company);
   writeDB(db);
 
-  res.status(201).json(company);
+  // Remove password from response
+  const { password: _, ...companyWithoutPassword } = company;
+
+  res.status(201).json(companyWithoutPassword);
 });
 
 // PUT /api/companies/:id
@@ -1530,7 +1562,7 @@ app.get("/api/email-campaigns", authenticateUser, (req, res) => {
 });
 
 // POST /api/email-campaigns/send
-app.post("/api/email-campaigns/send", async (req, res) => {
+app.post("/api/email-campaigns/send", authenticateUser, async (req, res) => {
   const {
     subject,
     body,
@@ -1542,9 +1574,26 @@ app.post("/api/email-campaigns/send", async (req, res) => {
     companyId,
   } = req.body;
 
-  if (!subject || !body || !fromEmail || !fromPassword || !contactIds?.length) {
+  // Use authenticated user's email credentials if not provided
+  let finalFromEmail = fromEmail;
+  let finalFromPassword = fromPassword;
+  let finalSmtpHost = smtpHost;
+  let finalSmtpPort = smtpPort;
+
+  if (!finalFromEmail && req.user) {
+    const db = readDB();
+    const user = db.users.find((u) => u.id === req.user.userId);
+    if (user && user.emailHost && user.emailPassword) {
+      finalFromEmail = user.email;
+      finalFromPassword = user.emailPassword;
+      finalSmtpHost = user.emailHost || "smtp.gmail.com";
+      finalSmtpPort = user.emailPort || 587;
+    }
+  }
+
+  if (!subject || !body || !finalFromEmail || !finalFromPassword || !contactIds?.length) {
     return res.status(400).json({
-      error: "subject, body, fromEmail, fromPassword, and contactIds are required",
+      error: "subject, body, fromEmail, fromPassword, and contactIds are required. Please configure your email credentials in your profile.",
     });
   }
 
@@ -1570,9 +1619,9 @@ app.post("/api/email-campaigns/send", async (req, res) => {
     id: uuidv4(),
     subject,
     body,
-    fromEmail,
-    smtpHost: smtpHost || "smtp.gmail.com",
-    smtpPort: smtpPort || 587,
+    fromEmail: finalFromEmail,
+    smtpHost: finalSmtpHost || "smtp.gmail.com",
+    smtpPort: finalSmtpPort || 587,
     totalTargets: targets.length,
     sentCount: 0,
     failedCount: 0,
@@ -1580,6 +1629,7 @@ app.post("/api/email-campaigns/send", async (req, res) => {
     createdAt: new Date().toISOString(),
     completedAt: null,
     logs: [],
+    userId: req.user.userId,
   };
 
   db.email_campaigns.push(campaign);
@@ -1588,10 +1638,10 @@ app.post("/api/email-campaigns/send", async (req, res) => {
   let transporter;
   try {
     transporter = nodemailer.createTransport({
-      host: smtpHost || "smtp.gmail.com",
-      port: smtpPort || 587,
+      host: finalSmtpHost || "smtp.gmail.com",
+      port: finalSmtpPort || 587,
       secure: false,
-      auth: { user: fromEmail, pass: fromPassword },
+      auth: { user: finalFromEmail, pass: finalFromPassword },
       tls: { rejectUnauthorized: false },
     });
   } catch (err) {
@@ -1748,7 +1798,7 @@ app.get("/api/whatsapp-campaigns", authenticateUser, (req, res) => {
 });
 
 // POST /api/whatsapp-campaigns/send
-app.post("/api/whatsapp-campaigns/send", async (req, res) => {
+app.post("/api/whatsapp-campaigns/send", authenticateUser, async (req, res) => {
   const { message, contactIds, hasReplyButtons, replyOptions, companyId } = req.body;
 
   if (!message || !contactIds?.length) {
@@ -1798,6 +1848,7 @@ app.post("/api/whatsapp-campaigns/send", async (req, res) => {
     logs: [],
     hasReplyButtons: hasReplyButtons || false,
     replyOptions: hasReplyButtons && replyOptions ? replyOptions : undefined,
+    userId: req.user.userId,
   };
 
   db.whatsapp_campaigns.push(campaign);

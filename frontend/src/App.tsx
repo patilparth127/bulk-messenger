@@ -68,6 +68,7 @@ export default function App() {
 
   const handleLogin = (loggedInUser: User) => {
     setUser(loggedInUser);
+    setLoading(true);
     refresh();
   };
 
@@ -103,8 +104,13 @@ export default function App() {
     }
   }, []);
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    // Only fetch data if user is authenticated
+    if (user) {
+      refresh();
+    } else {
+      setLoading(false);
+    }
+  }, [user, refresh]);
 
   const navItems: {
     id: Page;
