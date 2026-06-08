@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { Building2, Users, Mail, MessageCircle, Smartphone, TrendingUp, Calendar, Activity, Settings } from "lucide-react";
+import { Building2, Users, Mail, MessageCircle, TrendingUp, Calendar, Activity, Settings } from "lucide-react";
 import toast from "react-hot-toast";
-import { Company, Subscription, Contact, EmailCampaign, WhatsAppCampaign, SmsCampaign } from "../types";
-import { getCompany, getCompanySubscription, getContacts, getEmailCampaigns, getWhatsAppCampaigns, getSmsCampaigns } from "../utils/api";
+import { Company, Subscription, Contact, EmailCampaign, WhatsAppCampaign } from "../types";
+import { getCompany, getCompanySubscription, getContacts, getEmailCampaigns, getWhatsAppCampaigns } from "../utils/api";
 
 interface Props {
   companyId: string;
@@ -15,7 +15,6 @@ export default function CompanyDashboard({ companyId, user }: Props) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [emailCampaigns, setEmailCampaigns] = useState<EmailCampaign[]>([]);
   const [whatsappCampaigns, setWhatsAppCampaigns] = useState<WhatsAppCampaign[]>([]);
-  const [smsCampaigns, setSmsCampaigns] = useState<SmsCampaign[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -32,18 +31,16 @@ export default function CompanyDashboard({ companyId, user }: Props) {
       setSubscription(subscriptionData);
 
       // Fetch company-specific data
-      const [contactsData, emailData, whatsappData, smsData] = await Promise.all([
+      const [contactsData, emailData, whatsappData] = await Promise.all([
         getContacts(),
         getEmailCampaigns(),
         getWhatsAppCampaigns(),
-        getSmsCampaigns(),
       ]);
 
       // Filter data for this company (in a real app, this would be done on the backend)
       setContacts(contactsData);
       setEmailCampaigns(emailData);
       setWhatsAppCampaigns(whatsappData);
-      setSmsCampaigns(smsData);
     } catch (error) {
       toast.error("Failed to fetch company data");
     } finally {
@@ -70,7 +67,6 @@ export default function CompanyDashboard({ companyId, user }: Props) {
   const totalContacts = contacts.length;
   const totalEmailCampaigns = emailCampaigns.length;
   const totalWhatsAppCampaigns = whatsappCampaigns.length;
-  const totalSmsCampaigns = smsCampaigns.length;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -216,15 +212,6 @@ export default function CompanyDashboard({ companyId, user }: Props) {
           </div>
           <p className="text-sm text-gray-500">WhatsApp Campaigns</p>
         </div>
-        <div className="bg-white shadow-lg rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="bg-purple-100 rounded-full p-3">
-              <Smartphone className="h-6 w-6 text-purple-600" />
-            </div>
-            <span className="text-2xl font-bold text-gray-900">{totalSmsCampaigns}</span>
-          </div>
-          <p className="text-sm text-gray-500">SMS Campaigns</p>
-        </div>
       </div>
 
       {/* Quick Actions */}
@@ -245,10 +232,6 @@ export default function CompanyDashboard({ companyId, user }: Props) {
             <button className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 rounded-lg hover:border-indigo-500 hover:bg-indigo-50 transition-colors">
               <MessageCircle className="h-8 w-8 text-indigo-600 mb-2" />
               <span className="text-sm font-medium text-gray-700">Send WhatsApp</span>
-            </button>
-            <button className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 rounded-lg hover:border-indigo-500 hover:bg-indigo-50 transition-colors">
-              <Smartphone className="h-8 w-8 text-indigo-600 mb-2" />
-              <span className="text-sm font-medium text-gray-700">Send SMS</span>
             </button>
           </div>
         </div>

@@ -15,11 +15,10 @@ import {
   TrendingUp,
 } from "lucide-react";
 import "./styles.css";
-import { Contact, EmailCampaign, SmsCampaign, WhatsAppCampaign, User, UserRole } from "./types";
+import { Contact, EmailCampaign, WhatsAppCampaign, User, UserRole } from "./types";
 import {
   getContacts,
   getEmailCampaigns,
-  getSmsCampaigns,
   getWhatsAppCampaigns,
   logout,
   getCurrentUser,
@@ -28,7 +27,6 @@ import Dashboard from "./components/Dashboard";
 import ContactList from "./components/ContactList";
 import EmailPortal from "./components/EmailPortal";
 import WhatsAppPortal from "./components/WhatsAppPortal";
-import SmsPortal from "./components/SmsPortal";
 import Settings from "./components/Settings";
 import Login from "./components/Login";
 import UserManagement from "./components/UserManagement";
@@ -36,7 +34,7 @@ import AdminDashboard from "./components/AdminDashboard";
 import CompanyManagement from "./components/CompanyManagement";
 import SubscriptionManagement from "./components/SubscriptionManagement";
 
-type Page = "dashboard" | "contacts" | "email" | "whatsapp" | "sms" | "settings" | "users" | "admin" | "companies" | "subscription";
+type Page = "dashboard" | "contacts" | "email" | "whatsapp" | "settings" | "users" | "admin" | "companies" | "subscription";
 
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
@@ -44,7 +42,6 @@ export default function App() {
   const [emailCampaigns, setEmailCampaigns] = useState<EmailCampaign[]>([]);
   const [waCampaigns, setWaCampaigns] = useState<WhatsAppCampaign[]>([]);
   const [loading, setLoading] = useState(true);
-  const [smsCampaigns, setSmsCampaigns] = useState<SmsCampaign[]>([]);
   const [user, setUser] = useState<User | null>(null);
 
   // Check for existing session on mount
@@ -86,16 +83,14 @@ export default function App() {
   };
   const refresh = useCallback(async () => {
     try {
-      const [c, e, w, s] = await Promise.all([
+      const [c, e, w] = await Promise.all([
         getContacts(),
         getEmailCampaigns(),
         getWhatsAppCampaigns(),
-        getSmsCampaigns(),
       ]);
       setContacts(c);
       setEmailCampaigns(e);
       setWaCampaigns(w);
-      setSmsCampaigns(s);
     } catch (err: any) {
       console.error("Fetch error:", err);
       toast.error("Failed to load data. Please check your connection and try again.");
@@ -140,12 +135,6 @@ export default function App() {
         label: "WhatsApp Portal",
         icon: <MessageCircle size={16} />,
         badge: waCampaigns.length || undefined,
-      },
-      {
-        id: "sms",
-        label: "SMS Portal",
-        icon: <Smartphone size={16} />,
-        badge: smsCampaigns.length || undefined,
       },
       {
         id: "settings",
@@ -307,12 +296,6 @@ export default function App() {
               <WhatsAppPortal
                 contacts={contacts}
                 campaigns={waCampaigns}
-                onRefresh={refresh}
-              />
-            )},{page === "sms" && (
-              <SmsPortal
-                contacts={contacts}
-                campaigns={smsCampaigns}
                 onRefresh={refresh}
               />
             )}

@@ -17,7 +17,6 @@ export default function SubscriptionPage({ user, onPurchase }: Props) {
       monthlyPrice: 29,
       yearlyPrice: 290,
       features: [
-        "1,000 SMS messages/month",
         "1,000 Email messages/month",
         "1,000 WhatsApp messages/month",
         "Email support",
@@ -30,7 +29,6 @@ export default function SubscriptionPage({ user, onPurchase }: Props) {
       monthlyPrice: 79,
       yearlyPrice: 790,
       features: [
-        "10,000 SMS messages/month",
         "10,000 Email messages/month",
         "10,000 WhatsApp messages/month",
         "Priority support",
@@ -44,7 +42,6 @@ export default function SubscriptionPage({ user, onPurchase }: Props) {
       monthlyPrice: 199,
       yearlyPrice: 1990,
       features: [
-        "100,000 SMS messages/month",
         "100,000 Email messages/month",
         "100,000 WhatsApp messages/month",
         "24/7 dedicated support",
@@ -144,7 +141,6 @@ export default function SubscriptionPage({ user, onPurchase }: Props) {
             Try our service with limited features
           </p>
           <ul className="text-left space-y-2 mb-6 text-gray-700">
-            <li>• 100 SMS messages/month</li>
             <li>• 100 Email messages/month</li>
             <li>• 100 WhatsApp messages/month</li>
             <li>• Basic support</li>

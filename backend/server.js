@@ -327,7 +327,7 @@ const ContactStatus = { ACTIVE: "active", INACTIVE: "inactive", DUMP: "dump" };
 // ─── SaaS Enums ───────────────────────────────────────────────
 const SubscriptionStatus = { ACTIVE: "active", EXPIRED: "expired", SUSPENDED: "suspended", TRIAL: "trial", PENDING: "pending" };
 const SubscriptionPlan = { FREE: "free", BASIC_MONTHLY: "basic_monthly", BASIC_YEARLY: "basic_yearly", PRO_MONTHLY: "pro_monthly", PRO_YEARLY: "pro_yearly", ENTERPRISE_MONTHLY: "enterprise_monthly", ENTERPRISE_YEARLY: "enterprise_yearly" };
-const ProductType = { SMS: "sms", EMAIL: "email", WHATSAPP: "whatsapp" };
+const ProductType = { EMAIL: "email", WHATSAPP: "whatsapp" };
 const MessageType = { INTERACTIVE_TEMPLATE: "interactive_template", MEDIA_MESSAGE: "media_message" };
 const MediaType = { IMAGE: "image", VIDEO: "video", DOCUMENT: "document", AUDIO: "audio" };
 
@@ -351,8 +351,6 @@ function ensureDB() {
       email_logs: [],
       whatsapp_campaigns: [],
       whatsapp_logs: [],
-      sms_campaigns: [],
-      sms_logs: [],
       users: [],
       settings: [],
       companies: [],
@@ -369,8 +367,6 @@ function ensureDB() {
     db.email_logs = db.email_logs || [];
     db.whatsapp_campaigns = db.whatsapp_campaigns || [];
     db.whatsapp_logs = db.whatsapp_logs || [];
-    db.sms_campaigns = db.sms_campaigns || [];
-    db.sms_logs = db.sms_logs || [];
     db.users = db.users || [];
     db.settings = db.settings || [];
     db.companies = db.companies || [];
@@ -1135,16 +1131,6 @@ app.get("/api/settings", (req, res) => {
         enabled: false,
         updatedAt: new Date().toISOString(),
       },
-      smsDelay: {
-        id: uuidv4(),
-        type: "sms",
-        delayMs: 600,
-        randomDelayMin: 300,
-        randomDelayMax: 1000,
-        batchSize: 5,
-        enabled: false,
-        updatedAt: new Date().toISOString(),
-      },
       updatedAt: new Date().toISOString(),
     };
     db.settings.push(settings);
@@ -1172,7 +1158,7 @@ app.put("/api/settings", (req, res) => {
 // PUT /api/settings/delay/:type
 app.put("/api/settings/delay/:type", (req, res) => {
   const { type } = req.params;
-  const validTypes = ["whatsapp", "email", "sms"];
+  const validTypes = ["whatsapp", "email"];
   
   if (!validTypes.includes(type)) {
     return res.status(400).json({ error: "Invalid delay type" });
@@ -1932,269 +1918,6 @@ app.get("/api/upload-sessions", (req, res) => {
   res.json(db.upload_sessions);
 });
 
-// ═══════════════════════════════════════════════════════════════
-//  SMS CAMPAIGNS — HTTP API based SMS Gateway (SMSForwarder/Android)
-// ═══════════════════════════════════════════════════════════════
-
-// SMS Gateway Configuration - Update these to match your SMS gateway
-const SMS_GATEWAY_CONFIG = {
-  enabled: true,
-  apiUrl: process.env.SMS_GATEWAY_URL || "http://localhost:8080", // SMSForwarder default
-  apiKey: process.env.SMS_GATEWAY_API_KEY || "", // Optional API key if your gateway requires it
-  timeout: 10000, // 10 seconds timeout
-};
-
-// ── Helper: send single SMS via HTTP API ─────────────────────
-async function sendSmsViaHttpApi(phone, message) {
-  try {
-    // SMSForwarder API format (adjust based on your gateway)
-    const response = await fetch(`${SMS_GATEWAY_CONFIG.apiUrl}/send`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(SMS_GATEWAY_CONFIG.apiKey && { "X-API-Key": SMS_GATEWAY_CONFIG.apiKey }),
-      },
-      body: JSON.stringify({
-        to: phone,
-        message: message,
-      }),
-      signal: AbortSignal.timeout(SMS_GATEWAY_CONFIG.timeout),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`SMS Gateway error: ${response.status} - ${errorText}`);
-    }
-
-    const result = await response.json();
-    return {
-      success: true,
-      sid: result.sid || result.messageId || null,
-      data: result,
-    };
-  } catch (err) {
-    console.error("SMS Gateway Error:", err.message);
-    return {
-      success: false,
-      error: err.message,
-    };
-  }
-}
-
-// ── Helper: check SMS Gateway status ─────────────────────────
-async function checkSmsGatewayStatus() {
-  try {
-    const response = await fetch(`${SMS_GATEWAY_CONFIG.apiUrl}/status`, {
-      method: "GET",
-      headers: {
-        ...(SMS_GATEWAY_CONFIG.apiKey && { "X-API-Key": SMS_GATEWAY_CONFIG.apiKey }),
-      },
-      signal: AbortSignal.timeout(5000),
-    });
-
-    if (!response.ok) {
-      throw new Error(`SMS Gateway not responding: ${response.status}`);
-    }
-
-    const result = await response.json();
-    return {
-      connected: true,
-      device: result.device || result.phone || "SMS Gateway",
-      message: "SMS Gateway is connected and ready",
-      details: result,
-    };
-  } catch (err) {
-    return {
-      connected: false,
-      device: null,
-      message: `SMS Gateway not reachable: ${err.message}. Please ensure your SMS gateway app (e.g., SMSForwarder) is running and accessible at ${SMS_GATEWAY_CONFIG.apiUrl}`,
-    };
-  }
-}
-
-// ── Helper: format phone to E.164 ────────────────────────────
-function formatPhone(phone) {
-  let p = String(phone).replace(/\D/g, "");
-  if (p.length === 10) return "+91" + p;
-  if (p.length === 12 && p.startsWith("91")) return "+" + p;
-  if (p.startsWith("+")) return phone.replace(/\s/g, "");
-  return "+" + p;
-}
-
-// GET /api/sms/gateway-status  — check if SMS gateway is connected
-app.get("/api/sms/gateway-status", async (req, res) => {
-  const status = await checkSmsGatewayStatus();
-  res.json(status);
-});
-
-// GET /api/sms-campaigns
-app.get("/api/sms-campaigns", authenticateUser, (req, res) => {
-  const db = readDB();
-  
-  // If user is master admin, return all campaigns
-  if (req.user.email === MASTER_ADMIN_EMAIL) {
-    return res.json(db.sms_campaigns || []);
-  }
-  
-  // Otherwise, filter by company ID
-  if (req.user.companyId) {
-    const companyCampaigns = (db.sms_campaigns || []).filter((c) => c.companyId === req.user.companyId);
-    return res.json(companyCampaigns);
-  }
-  
-  // If no company ID, return empty array
-  res.json([]);
-});
-
-// GET /api/sms-logs
-app.get("/api/sms-logs", (req, res) => {
-  const db = readDB();
-  res.json(db.sms_logs || []);
-});
-
-// POST /api/sms-campaigns/send
-app.post("/api/sms-campaigns/send", async (req, res) => {
-  const { template, contactIds, companyId } = req.body;
-
-  if (!template || !template.trim()) {
-    return res.status(400).json({ error: "SMS template is required" });
-  }
-  if (!contactIds || !contactIds.length) {
-    return res.status(400).json({ error: "Select at least one contact" });
-  }
-
-  // Validate subscription for SMS module
-  if (companyId) {
-    const validation = validateSubscription(companyId, ProductType.SMS);
-    if (!validation.valid) {
-      return res.status(403).json({ 
-        error: validation.error,
-        code: validation.code,
-      });
-    }
-  }
-
-  // Check SMS Gateway status
-  const gatewayStatus = await checkSmsGatewayStatus();
-  if (!gatewayStatus.connected) {
-    return res.status(400).json({
-      error: gatewayStatus.message || "SMS Gateway not connected. Please ensure your SMS gateway app (e.g., SMSForwarder) is running.",
-    });
-  }
-
-  const db = readDB();
-  const targets = db.contacts.filter(
-    (c) => contactIds.includes(c.id) && c.phone && c.phone.trim()
-  );
-
-  if (targets.length === 0) {
-    return res.status(400).json({ error: "No contacts with valid phone numbers found" });
-  }
-
-  // Create campaign
-  const campaign = {
-    id: uuidv4(),
-    template,
-    device: gatewayStatus.device || "SMS Gateway",
-    totalTargets: targets.length,
-    sentCount: 0,
-    failedCount: 0,
-    status: "pending",
-    createdAt: new Date().toISOString(),
-    completedAt: null,
-    logs: [],
-  };
-
-  if (!db.sms_campaigns) db.sms_campaigns = [];
-  db.sms_campaigns.push(campaign);
-  writeDB(db);
-
-  const logs = [];
-
-  // Get delay settings
-  const settings = db.settings[0];
-  const smsDelaySettings = settings?.smsDelay || {
-    delayMs: 600,
-    randomDelayMin: 300,
-    randomDelayMax: 1000,
-    enabled: false,
-  };
-
-  for (const contact of targets) {
-    const phone = formatPhone(contact.phone);
-
-    // Build personalized message from template
-    const message = template
-      .replace(/\{name\}/gi, contact.name)
-      .replace(/\{phone\}/gi, contact.phone)
-      .replace(/\{email\}/gi, contact.email || "");
-
-    const log = {
-      id: uuidv4(),
-      campaignId: campaign.id,
-      contactId: contact.id,
-      contactName: contact.name,
-      contactPhone: phone,
-      message,
-      status: "pending",
-      sentAt: null,
-      error: null,
-    };
-
-    const result = await sendSmsViaHttpApi(phone, message);
-
-    if (result.success) {
-      log.status = "sent";
-      log.sentAt = new Date().toISOString();
-      log.sid = result.sid || null;
-
-      const dbNow = readDB();
-      const c = dbNow.contacts.find((x) => x.id === contact.id);
-      if (c) {
-        c.smsSentCount = (c.smsSentCount || 0) + 1;
-        c.lastSmsSentAt = log.sentAt;
-        writeDB(dbNow);
-      }
-    } else {
-      log.status = "failed";
-      log.error = result.error;
-    }
-
-    logs.push(log);
-
-    // Apply delay based on settings
-    if (smsDelaySettings.enabled) {
-      const randomDelay = smsDelaySettings.randomDelayMin + Math.random() * (smsDelaySettings.randomDelayMax - smsDelaySettings.randomDelayMin);
-      await new Promise((r) => setTimeout(r, smsDelaySettings.delayMs + randomDelay));
-    } else {
-      await new Promise((r) => setTimeout(r, 600)); // Default delay
-    }
-  }
-
-  // Finalize
-  const dbFinal = readDB();
-  if (!dbFinal.sms_logs) dbFinal.sms_logs = [];
-  logs.forEach((l) => dbFinal.sms_logs.push(l));
-
-  const camp = dbFinal.sms_campaigns.find((c) => c.id === campaign.id);
-  if (camp) {
-    camp.sentCount = logs.filter((l) => l.status === "sent").length;
-    camp.failedCount = logs.filter((l) => l.status === "failed").length;
-    camp.status = "sent";
-    camp.completedAt = new Date().toISOString();
-    camp.logs = logs;
-  }
-  writeDB(dbFinal);
-
-  res.json({
-    success: true,
-    campaignId: campaign.id,
-    device,
-    sentCount: logs.filter((l) => l.status === "sent").length,
-    failedCount: logs.filter((l) => l.status === "failed").length,
-    logs,
-  });
-});
 
 // ═══════════════════════════════════════════════════════════════
 // WHATSAPP CLOUD API ENDPOINTS (Graph API v20.0)

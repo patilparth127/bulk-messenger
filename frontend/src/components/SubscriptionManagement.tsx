@@ -21,7 +21,6 @@ export default function SubscriptionManagement({ companyId, user }: Props) {
     products: [
       { productType: "EMAIL", isEnabled: true, usageLimit: 1000, currentUsage: 0 },
       { productType: "WHATSAPP", isEnabled: true, usageLimit: 1000, currentUsage: 0 },
-      { productType: "SMS", isEnabled: true, usageLimit: 1000, currentUsage: 0 },
     ],
   });
 

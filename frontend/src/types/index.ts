@@ -125,36 +125,6 @@ export interface ApiResponse<T> {
   error?: string;
 }
 
-export interface SmsCampaign {
-  id: string;
-  template: string;
-  fromNumber: string;
-  totalTargets: number;
-  sentCount: number;
-  failedCount: number;
-  status: SendStatus;
-  createdAt: string;
-  completedAt: string | null;
-  logs: SmsLog[];
-}
-
-export interface SmsLog {
-  id: string;
-  campaignId: string;
-  contactId: string;
-  contactName: string;
-  contactPhone: string;
-  message: string;
-  status: SendStatus;
-  sentAt: string | null;
-  sid: string | null;
-  error: string | null;
-}
-
-export interface SendSmsPayload {
-  template: string;
-  contactIds: string[];
-}
 
 // ─── User & Authentication ─────────────────────────────────────────
 export enum UserRole {
@@ -221,7 +191,7 @@ export interface CreateUserPayload {
 // ─── Settings ───────────────────────────────────────────────────────
 export interface DelaySettings {
   id: string;
-  type: "whatsapp" | "email" | "sms";
+  type: "whatsapp" | "email";
   delayMs: number;
   randomDelayMin: number;
   randomDelayMax: number;
@@ -235,7 +205,6 @@ export interface AppSettings {
   userId?: string;
   whatsappDelay: DelaySettings;
   emailDelay: DelaySettings;
-  smsDelay: DelaySettings;
   updatedAt: string;
 }
 
@@ -260,7 +229,6 @@ export enum SubscriptionPlan {
 }
 
 export enum ProductType {
-  SMS = "sms",
   EMAIL = "email",
   WHATSAPP = "whatsapp",
 }
@@ -330,10 +298,8 @@ export interface Contact {
   createdAt: string;
   emailSentCount: number;
   whatsappSentCount: number;
-  smsSentCount: number;
   lastEmailSentAt: string | null;
   lastWhatsappSentAt: string | null;
-  lastSmsSentAt: string | null;
 }
 
 export interface EmailCampaign {
@@ -386,19 +352,6 @@ export interface WhatsAppButton {
   url?: string;
 }
 
-export interface SmsCampaign {
-  id: string;
-  companyId?: string;
-  template: string;
-  fromNumber: string;
-  totalTargets: number;
-  sentCount: number;
-  failedCount: number;
-  status: SendStatus;
-  createdAt: string;
-  completedAt: string | null;
-  logs: SmsLog[];
-}
 
 // ─── WhatsApp Cloud API Types ───────────────────────────────────────────────
 

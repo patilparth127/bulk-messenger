@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Settings as SettingsIcon, Clock, Zap, Save, Smartphone, Mail, MessageCircle } from "lucide-react";
+import { Settings as SettingsIcon, Clock, Zap, Save, Mail, MessageCircle } from "lucide-react";
 import toast from "react-hot-toast";
 import { AppSettings, DelaySettings } from "../types";
 import { getSettings, updateDelaySettings } from "../utils/api";
@@ -8,7 +8,7 @@ export default function Settings() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<"whatsapp" | "email" | "sms">("whatsapp");
+  const [activeTab, setActiveTab] = useState<"whatsapp" | "email">("whatsapp");
 
   useEffect(() => {
     loadSettings();
@@ -25,7 +25,7 @@ export default function Settings() {
     }
   };
 
-  const handleSave = async (type: "whatsapp" | "email" | "sms") => {
+  const handleSave = async (type: "whatsapp" | "email") => {
     if (!settings) return;
 
     setSaving(true);
@@ -43,7 +43,7 @@ export default function Settings() {
     }
   };
 
-  const updateDelaySetting = (type: "whatsapp" | "email" | "sms", field: keyof DelaySettings, value: any) => {
+  const updateDelaySetting = (type: "whatsapp" | "email", field: keyof DelaySettings, value: any) => {
     if (!settings) return;
     
     const delayKey = `${type}Delay` as keyof AppSettings;
@@ -76,7 +76,6 @@ export default function Settings() {
   const tabs = [
     { id: "whatsapp" as const, label: "WhatsApp", icon: <MessageCircle size={16} />, color: "var(--accent-wa)" },
     { id: "email" as const, label: "Email", icon: <Mail size={16} />, color: "var(--accent-email)" },
-    { id: "sms" as const, label: "SMS", icon: <Smartphone size={16} />, color: "#7c3aed" },
   ];
 
   const currentDelay = settings[`${activeTab}Delay` as keyof AppSettings] as DelaySettings;

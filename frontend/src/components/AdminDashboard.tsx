@@ -205,9 +205,6 @@ export default function AdminDashboard({ user }: Props) {
                   Subscription
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  SMS
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Email
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -221,7 +218,6 @@ export default function AdminDashboard({ user }: Props) {
             <tbody className="bg-white divide-y divide-gray-200">
               {companies.map((company) => {
                 const subscription = getSubscriptionForCompany(company.id);
-                const smsStatus = getServiceStatus(subscription, ProductType.SMS);
                 const emailStatus = getServiceStatus(subscription, ProductType.EMAIL);
                 const whatsappStatus = getServiceStatus(subscription, ProductType.WHATSAPP);
 
@@ -247,25 +243,6 @@ export default function AdminDashboard({ user }: Props) {
                       ) : (
                         <span className="text-sm text-gray-500">No subscription</span>
                       )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <button
-                          onClick={() => toggleService(company.id, ProductType.SMS, smsStatus.enabled)}
-                          className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                            smsStatus.enabled ? "bg-indigo-600" : "bg-gray-200"
-                          }`}
-                        >
-                          <span
-                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                              smsStatus.enabled ? "translate-x-6" : "translate-x-1"
-                            }`}
-                          />
-                        </button>
-                        <span className="ml-2 text-xs text-gray-500">
-                          {smsStatus.usage}/{smsStatus.limit}
-                        </span>
-                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
@@ -325,7 +302,7 @@ export default function AdminDashboard({ user }: Props) {
               })}
               {companies.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                     No companies found
                   </td>
                 </tr>

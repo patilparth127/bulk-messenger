@@ -3,11 +3,9 @@ import {
   Contact,
   EmailCampaign,
   WhatsAppCampaign,
-  SmsCampaign,
   UploadSession,
   SendEmailPayload,
   SendWhatsAppPayload,
-  SendSmsPayload,
   User,
   AuthResponse,
   AppSettings,
@@ -93,15 +91,6 @@ export const sendWhatsAppCampaign = (payload: SendWhatsAppPayload) =>
 export const getUploadSessions = () =>
   api.get<UploadSession[]>("/upload-sessions").then((r) => r.data);
 
-// ─── SMS ──────────────────────────────────────────────────────
-export const getSmsCampaigns = () =>
-  api.get<SmsCampaign[]>("/sms-campaigns").then((r) => r.data);
-
-export const sendSmsCampaign = (payload: SendSmsPayload) =>
-  api.post("/sms-campaigns/send", payload).then((r) => r.data);
-
-export const getSmsGatewayStatus = () =>
-  api.get<{ connected: boolean; device: string | null; message: string }>("/sms/gateway-status").then((r) => r.data);
 
 // ─── Authentication ─────────────────────────────────────────────
 export const login = (credentials: LoginCredentials) =>
@@ -136,7 +125,7 @@ export const getSettings = () =>
 export const updateSettings = (settings: Partial<AppSettings>) =>
   api.put<AppSettings>("/settings", settings).then((r) => r.data);
 
-export const updateDelaySettings = (type: "whatsapp" | "email" | "sms", settings: Partial<DelaySettings>) =>
+export const updateDelaySettings = (type: "whatsapp" | "email", settings: Partial<DelaySettings>) =>
   api.put<DelaySettings>(`/settings/delay/${type}`, settings).then((r) => r.data);
 
 // ─── Companies ─────────────────────────────────────────────────────
