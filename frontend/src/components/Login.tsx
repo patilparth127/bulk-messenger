@@ -1,8 +1,8 @@
 import React, { useState } from "react";
-import { LogIn, Mail, Lock, Shield, User as UserIcon, Key } from "lucide-react";
+import { LogIn, Mail, Lock, User as UserIcon } from "lucide-react";
 import toast from "react-hot-toast";
-import { googleLogin, login } from "../utils/api";
-import { User, AuthMethod } from "../types";
+import { login } from "../utils/api";
+import { User } from "../types";
 
 interface Props {
   onLogin: (user: User) => void;
@@ -10,32 +10,8 @@ interface Props {
 
 export default function Login({ onLogin }: Props) {
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"google" | "password">("password");
-  const [credentials, setCredentials] = useState({ email: "", password: "", companyCode: "" });
+  const [credentials, setCredentials] = useState({ email: "", password: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
-
-  const handleGoogleLogin = async () => {
-    setLoading(true);
-    try {
-      // Simulate Google OAuth flow
-      // In production, this would use the actual Google Sign-In SDK
-      const response = await googleLogin("demo-google-token");
-      
-      if (response.success && response.user) {
-        localStorage.setItem("userEmail", response.user.email);
-        localStorage.setItem("userName", response.user.name);
-        localStorage.setItem("authToken", response.token || "");
-        toast.success(`Welcome, ${response.user.name}!`);
-        onLogin(response.user);
-      } else {
-        toast.error(response.error || "Login failed");
-      }
-    } catch (error) {
-      toast.error("Failed to login");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handlePasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,11 +20,6 @@ export default function Login({ onLogin }: Props) {
     const errs: Record<string, string> = {};
     if (!credentials.email.trim()) errs.email = "Email is required";
     if (!credentials.password.trim()) errs.password = "Password is required";
-    
-    // Only require company code for non-master admin users
-    if (credentials.email !== "patilparth127@gmail.com" && !credentials.companyCode.trim()) {
-      errs.companyCode = "Company code is required";
-    }
     
     if (Object.keys(errs).length) {
       setErrors(errs);
@@ -60,14 +31,11 @@ export default function Login({ onLogin }: Props) {
       const response = await login({
         email: credentials.email,
         password: credentials.password,
-        companyCode: credentials.companyCode,
-        authMethod: AuthMethod.USERNAME_PASSWORD,
       });
       
       if (response.success && response.user) {
         localStorage.setItem("userEmail", response.user.email);
         localStorage.setItem("userName", response.user.name);
-        localStorage.setItem("authToken", response.token || "");
         toast.success(`Welcome, ${response.user.name}!`);
         onLogin(response.user);
       } else {
@@ -117,178 +85,68 @@ export default function Login({ onLogin }: Props) {
             </p>
           </div>
 
-          <div style={{
-            display: "flex",
-            gap: 8,
-            marginBottom: 24,
-            borderBottom: "1px solid var(--border-light)",
-          }}>
-            <button
-              className={`tab ${activeTab === "password" ? "active-neutral" : ""}`}
-              onClick={() => setActiveTab("password")}
-              style={{ flex: 1, padding: "12px", fontSize: "0.9rem" }}
-            >
-              <Key size={16} style={{ marginRight: 6 }} />
-              Username/Password
-            </button>
-            <button
-              className={`tab ${activeTab === "google" ? "active-neutral" : ""}`}
-              onClick={() => setActiveTab("google")}
-              style={{ flex: 1, padding: "12px", fontSize: "0.9rem" }}
-            >
-              <Mail size={16} style={{ marginRight: 6 }} />
-              Google
-            </button>
-          </div>
-
-          {activeTab === "password" && (
-            <form onSubmit={handlePasswordLogin}>
-              <div style={{ marginBottom: 16 }}>
-                <label className="form-label">Username</label>
-                <div style={{ position: "relative" }}>
-                  <UserIcon
-                    size={16}
-                    style={{
-                      position: "absolute",
-                      left: 12,
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      color: "var(--text-muted)",
-                    }}
-                  />
-                  <input
-                    className="form-input"
-                    type="email"
-                    style={{ paddingLeft: 40 }}
-                    placeholder="Enter your email"
-                    value={credentials.email}
-                    onChange={(e) => setCredentials({ ...credentials, email: e.target.value })}
-                    disabled={loading}
-                  />
-                </div>
-                {errors.email && <span className="form-error">{errors.email}</span>}
+          <form onSubmit={handlePasswordLogin}>
+            <div style={{ marginBottom: 16 }}>
+              <label className="form-label">Email</label>
+              <div style={{ position: "relative" }}>
+                <UserIcon
+                  size={16}
+                  style={{
+                    position: "absolute",
+                    left: 12,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    color: "var(--text-muted)",
+                  }}
+                />
+                <input
+                  className="form-input"
+                  type="email"
+                  style={{ paddingLeft: 40 }}
+                  placeholder="Enter your email"
+                  value={credentials.email}
+                  onChange={(e) => setCredentials({ ...credentials, email: e.target.value })}
+                  disabled={loading}
+                />
               </div>
+              {errors.email && <span className="form-error">{errors.email}</span>}
+            </div>
 
-              <div style={{ marginBottom: 24 }}>
-                <label className="form-label">Password</label>
-                <div style={{ position: "relative" }}>
-                  <Lock
-                    size={16}
-                    style={{
-                      position: "absolute",
-                      left: 12,
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      color: "var(--text-muted)",
-                    }}
-                  />
-                  <input
-                    className="form-input"
-                    type="password"
-                    style={{ paddingLeft: 40 }}
-                    placeholder="Enter your password"
-                    value={credentials.password}
-                    onChange={(e) => setCredentials({ ...credentials, password: e.target.value })}
-                    disabled={loading}
-                  />
-                </div>
-                {errors.password && <span className="form-error">{errors.password}</span>}
+            <div style={{ marginBottom: 24 }}>
+              <label className="form-label">Password</label>
+              <div style={{ position: "relative" }}>
+                <Lock
+                  size={16}
+                  style={{
+                    position: "absolute",
+                    left: 12,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    color: "var(--text-muted)",
+                  }}
+                />
+                <input
+                  className="form-input"
+                  type="password"
+                  style={{ paddingLeft: 40 }}
+                  placeholder="Enter your password"
+                  value={credentials.password}
+                  onChange={(e) => setCredentials({ ...credentials, password: e.target.value })}
+                  disabled={loading}
+                />
               </div>
+              {errors.password && <span className="form-error">{errors.password}</span>}
+            </div>
 
-              <div style={{ marginBottom: 24 }}>
-                <label className="form-label">Company Code</label>
-                <div style={{ position: "relative" }}>
-                  <Shield
-                    size={16}
-                    style={{
-                      position: "absolute",
-                      left: 12,
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      color: "var(--text-muted)",
-                    }}
-                  />
-                  <input
-                    className="form-input"
-                    style={{ paddingLeft: 40 }}
-                    placeholder="Enter your company code"
-                    value={credentials.companyCode}
-                    onChange={(e) => setCredentials({ ...credentials, companyCode: e.target.value.toUpperCase() })}
-                    disabled={loading}
-                  />
-                </div>
-                {errors.companyCode && <span className="form-error">{errors.companyCode}</span>}
-                <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: 4 }}>
-                  Not required for Master Admin (patilparth127@gmail.com)
-                </p>
-                <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: 4 }}>
-                  Use your registered email to login
-                </p>
-              </div>
-
-              <button
-                className="btn btn-primary-email btn-lg w-full"
-                type="submit"
-                disabled={loading}
-              >
-                {loading ? <span className="spinner" /> : <LogIn size={18} />}
-                {loading ? "Signing in..." : "Sign In"}
-              </button>
-            </form>
-          )}
-
-          {activeTab === "google" && (
             <button
-              className="btn btn-lg w-full"
-              style={{
-                background: "white",
-                color: "var(--text-primary)",
-                border: "1px solid var(--border)",
-                marginBottom: 16,
-              }}
-              onClick={handleGoogleLogin}
+              className="btn btn-primary-email btn-lg w-full"
+              type="submit"
               disabled={loading}
             >
-              {loading ? <span className="spinner spinner-dark" /> : <LogIn size={18} />}
-              {loading ? "Signing in..." : "Sign in with Google"}
+              {loading ? <span className="spinner" /> : <LogIn size={18} />}
+              {loading ? "Signing in..." : "Sign In"}
             </button>
-          )}
-
-          <div style={{
-            background: "var(--bg)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius)",
-            padding: "16px",
-            fontSize: "0.85rem",
-            color: "var(--text-secondary)",
-            display: "flex",
-            gap: 12,
-            alignItems: "flex-start",
-          }}>
-            <Shield size={18} style={{ flexShrink: 0, marginTop: 2, color: "var(--accent-email)" }} />
-            <div>
-              <strong style={{ display: "block", marginBottom: 4, color: "var(--text-primary)" }}>
-                Demo Authentication
-              </strong>
-              This is a demo implementation. In production, this would use the actual Google OAuth 2.0 flow with proper token validation.
-            </div>
-          </div>
-
-          <div style={{
-            marginTop: 24,
-            paddingTop: 16,
-            borderTop: "1px solid var(--border-light)",
-            textAlign: "center",
-            fontSize: "0.8rem",
-            color: "var(--text-muted)",
-          }}>
-            <p style={{ marginBottom: 4 }}>
-              Authorized users can delete all contacts
-            </p>
-            <p style={{ fontWeight: 600, color: "var(--text-secondary)" }}>
-              patilparth127@gmail.com
-            </p>
-          </div>
+          </form>
         </div>
       </div>
     </div>

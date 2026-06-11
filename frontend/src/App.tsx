@@ -7,21 +7,16 @@ import {
   Mail,
   MessageCircle,
   RefreshCw,
-  Smartphone,
   Settings as SettingsIcon,
   LogOut,
-  Shield,
-  Building2,
-  TrendingUp,
 } from "lucide-react";
 import "./styles.css";
-import { Contact, EmailCampaign, WhatsAppCampaign, User, UserRole } from "./types";
+import { Contact, EmailCampaign, WhatsAppCampaign, User } from "./types";
 import {
   getContacts,
   getEmailCampaigns,
   getWhatsAppCampaigns,
   logout,
-  getCurrentUser,
 } from "./utils/api";
 import Dashboard from "./components/Dashboard";
 import ContactList from "./components/ContactList";
@@ -29,12 +24,8 @@ import EmailPortal from "./components/EmailPortal";
 import WhatsAppPortal from "./components/WhatsAppPortal";
 import Settings from "./components/Settings";
 import Login from "./components/Login";
-import UserManagement from "./components/UserManagement";
-import AdminDashboard from "./components/AdminDashboard";
-import CompanyManagement from "./components/CompanyManagement";
-import SubscriptionManagement from "./components/SubscriptionManagement";
 
-type Page = "dashboard" | "contacts" | "email" | "whatsapp" | "settings" | "users" | "admin" | "companies" | "subscription";
+type Page = "dashboard" | "contacts" | "email" | "whatsapp" | "settings";
 
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
@@ -48,18 +39,8 @@ export default function App() {
   useEffect(() => {
     const storedEmail = localStorage.getItem("userEmail");
     const storedName = localStorage.getItem("userName");
-    const storedToken = localStorage.getItem("authToken");
-    if (storedEmail && storedName && storedToken) {
-      // Verify the token with the backend
-      getCurrentUser().then((currentUser) => {
-        setUser(currentUser);
-      }).catch(() => {
-        // Token invalid, clear storage
-        localStorage.removeItem("userEmail");
-        localStorage.removeItem("userName");
-        localStorage.removeItem("authToken");
-        setUser(null);
-      });
+    if (storedEmail && storedName) {
+      setUser({ email: storedEmail, name: storedName, isAdmin: true } as User);
     }
   }, []);
 
@@ -74,7 +55,6 @@ export default function App() {
       await logout();
       localStorage.removeItem("userEmail");
       localStorage.removeItem("userName");
-      localStorage.removeItem("authToken");
       setUser(null);
       toast.success("Logged out successfully");
     } catch (error) {
@@ -141,28 +121,6 @@ export default function App() {
         label: "Settings",
         icon: <SettingsIcon size={16} />,
       },
-      ...(user?.role === UserRole.ADMIN ? [{
-        id: "users" as Page,
-        label: "User Management",
-        icon: <Shield size={16} />,
-      }] : []),
-      ...(user?.email === "patilparth127@gmail.com" ? [
-        {
-          id: "companies" as Page,
-          label: "Companies",
-          icon: <Building2 size={16} />,
-        },
-        {
-          id: "admin" as Page,
-          label: "Admin Dashboard",
-          icon: <LayoutDashboard size={16} />,
-        },
-      ] : []),
-      ...(user?.companyId ? [{
-        id: "subscription" as Page,
-        label: "Subscription",
-        icon: <TrendingUp size={16} />,
-      }] : []),
     ];
 
   const activeClass = (id: Page) =>
@@ -301,18 +259,6 @@ export default function App() {
             )}
             {page === "settings" && (
               <Settings />
-            )}
-            {page === "users" && user && (
-              <UserManagement currentUser={user} onRefresh={refresh} />
-            )}
-            {page === "admin" && user && (
-              <AdminDashboard user={user} />
-            )}
-            {page === "companies" && user && (
-              <CompanyManagement user={user} />
-            )}
-            {page === "subscription" && user && (
-              <SubscriptionManagement companyId={user.companyId || undefined} user={user} />
             )}
           </>
         )}

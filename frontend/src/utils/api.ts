@@ -10,39 +10,12 @@ import {
   AuthResponse,
   AppSettings,
   DelaySettings,
-  LoginCredentials,
-  CreateUserPayload,
-  UserRole,
-  AuthMethod,
   ContactStatus,
 } from "../types";
 
 const BASE = "/api";
 
 const api = axios.create({ baseURL: BASE });
-
-// Add JWT token to all requests
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("authToken");
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-// Handle 401 errors
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem("authToken");
-      localStorage.removeItem("userEmail");
-      localStorage.removeItem("userName");
-      window.location.href = "/";
-    }
-    return Promise.reject(error);
-  }
-);
 
 // ─── Contacts ────────────────────────────────────────────────
 export const getContacts = () =>
@@ -93,30 +66,12 @@ export const getUploadSessions = () =>
 
 
 // ─── Authentication ─────────────────────────────────────────────
-export const login = (credentials: LoginCredentials) =>
+export const login = (credentials: { email: string; password: string }) =>
   api.post<AuthResponse>("/auth/login", credentials).then((r) => r.data);
-
-export const googleLogin = (token: string) =>
-  api.post<AuthResponse>("/auth/google", { token, authMethod: AuthMethod.GOOGLE }).then((r) => r.data);
-
-export const getCurrentUser = () =>
-  api.get<User>("/auth/me").then((r) => r.data);
 
 export const logout = () =>
   api.post("/auth/logout").then((r) => r.data);
 
-// ─── User Management (Admin only) ─────────────────────────────────
-export const getUsers = () =>
-  api.get<User[]>("/users").then((r) => r.data);
-
-export const createUser = (data: CreateUserPayload) =>
-  api.post<User>("/users", data).then((r) => r.data);
-
-export const updateUser = (id: string, data: Partial<CreateUserPayload>) =>
-  api.put<User>(`/users/${id}`, data).then((r) => r.data);
-
-export const deleteUser = (id: string) =>
-  api.delete(`/users/${id}`).then((r) => r.data);
 
 // ─── Settings ─────────────────────────────────────────────────────
 export const getSettings = () =>
@@ -128,56 +83,5 @@ export const updateSettings = (settings: Partial<AppSettings>) =>
 export const updateDelaySettings = (type: "whatsapp" | "email", settings: Partial<DelaySettings>) =>
   api.put<DelaySettings>(`/settings/delay/${type}`, settings).then((r) => r.data);
 
-// ─── Companies ─────────────────────────────────────────────────────
-export const getCompanies = () =>
-  api.get("/companies").then((r) => r.data);
 
-export const getCompany = (id: string) =>
-  api.get(`/companies/${id}`).then((r) => r.data);
 
-export const createCompany = (data: any) =>
-  api.post("/companies", data).then((r) => r.data);
-
-export const updateCompany = (id: string, data: any) =>
-  api.put(`/companies/${id}`, data).then((r) => r.data);
-
-export const deleteCompany = (id: string) =>
-  api.delete(`/companies/${id}`).then((r) => r.data);
-
-export const toggleCompanyService = (companyId: string, serviceType: string, enabled: boolean) =>
-  api.put(`/companies/${companyId}/toggle-service`, { serviceType, enabled }).then((r) => r.data);
-
-export const getCompanyServices = (companyId: string) =>
-  api.get(`/companies/${companyId}/services`).then((r) => r.data);
-
-// ─── Subscriptions ───────────────────────────────────────────────
-export const getSubscriptions = () =>
-  api.get("/subscriptions").then((r) => r.data);
-
-export const getSubscription = (id: string) =>
-  api.get(`/subscriptions/${id}`).then((r) => r.data);
-
-export const getCompanySubscription = (companyId: string) =>
-  api.get(`/companies/${companyId}/subscription`).then((r) => r.data);
-
-export const createSubscription = (data: any) =>
-  api.post("/subscriptions", data).then((r) => r.data);
-
-export const updateSubscription = (id: string, data: any) =>
-  api.put(`/subscriptions/${id}`, data).then((r) => r.data);
-
-export const deleteSubscription = (id: string) =>
-  api.delete(`/subscriptions/${id}`).then((r) => r.data);
-
-// ─── Notifications (Admin only) ───────────────────────────────────
-export const getNotifications = () =>
-  api.get("/notifications").then((r) => r.data);
-
-export const markNotificationAsRead = (id: string) =>
-  api.put(`/notifications/${id}/read`).then((r) => r.data);
-
-export const markAllNotificationsAsRead = () =>
-  api.put("/notifications/read-all").then((r) => r.data);
-
-export const deleteNotification = (id: string) =>
-  api.delete(`/notifications/${id}`).then((r) => r.data);

@@ -6,308 +6,16 @@ const nodemailer = require("nodemailer");
 const { v4: uuidv4 } = require("uuid");
 const fs = require("fs");
 const path = require("path");
-const { Client, LocalAuth } = require("whatsapp-web.js");
+const { Client, LocalAuth, List } = require("whatsapp-web.js");
 const qrcode = require("qrcode-terminal");
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
 
 const app = express();
 const PORT = 3200;
 const DB_PATH = path.join(__dirname, "db.json");
 
-// ─── WhatsApp Cloud API Configuration ───────────────────────────
-const WHATSAPP_CONFIG = {
-  accessToken: process.env.WHATSAPP_ACCESS_TOKEN || "",
-  phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || "",
-  wabaId: process.env.WHATSAPP_WABA_ID || "",
-  graphApiVersion: process.env.WHATSAPP_GRAPH_API_VERSION || "v20.0",
-  webhookVerifyToken: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || "",
-  webhookUrl: process.env.WHATSAPP_WEBHOOK_URL || "",
-};
-
-// ─── JWT Configuration ───────────────────────────────────────────
-const JWT_CONFIG = {
-  secret: process.env.JWT_SECRET || "your-super-secret-jwt-key-change-in-production",
-  expiresIn: process.env.JWT_EXPIRES_IN || "7d",
-};
-
-// ─── MASTER ADMIN Configuration ───────────────────────────────────
-const MASTER_ADMIN_EMAIL = "patilparth127@gmail.com";
-const AUTHORIZED_EMAIL = "patilparth127@gmail.com";
-
-// ─── Authentication Helper Functions ───────────────────────────────
-function generateToken(user) {
-  return jwt.sign(
-    {
-      userId: user.id,
-      email: user.email,
-      role: user.role,
-      companyId: user.companyId,
-    },
-    JWT_CONFIG.secret,
-    { expiresIn: JWT_CONFIG.expiresIn }
-  );
-}
-
-function verifyToken(token) {
-  try {
-    return jwt.verify(token, JWT_CONFIG.secret);
-  } catch (error) {
-    return null;
-  }
-}
-
-// Middleware to extract user from JWT token
-function authenticateUser(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ error: "Authorization required" });
-  }
-  
-  const token = authHeader.replace("Bearer ", "");
-  const decoded = verifyToken(token);
-  
-  if (!decoded) {
-    return res.status(401).json({ error: "Invalid token" });
-  }
-  
-  req.user = decoded;
-  next();
-}
-
-async function hashPassword(password) {
-  const salt = await bcrypt.genSalt(10);
-  return bcrypt.hash(password, salt);
-}
-
-async function comparePassword(password, hashedPassword) {
-  if (!hashedPassword) return false;
-  return bcrypt.compare(password, hashedPassword);
-}
-
-// ─── Subscription Validation Helper Functions ───────────────────────
-function validateSubscription(companyId, productType) {
-  const db = readDB();
-  
-  // Find subscription for the company
-  const subscription = db.subscriptions?.find((s) => s.companyId === companyId);
-  
-  if (!subscription) {
-    return {
-      valid: false,
-      error: "No subscription found for this company",
-      code: "NO_SUBSCRIPTION",
-    };
-  }
-  
-  // Check if subscription is active
-  if (subscription.status !== SubscriptionStatus.ACTIVE) {
-    return {
-      valid: false,
-      error: `Subscription is ${subscription.status.toLowerCase()}. Please renew your subscription.`,
-      code: "SUBSCRIPTION_INACTIVE",
-    };
-  }
-  
-  // Check if subscription has expired
-  const endDate = new Date(subscription.endDate);
-  const now = new Date();
-  if (endDate < now) {
-    return {
-      valid: false,
-      error: "Subscription has expired. Please renew your subscription.",
-      code: "SUBSCRIPTION_EXPIRED",
-    };
-  }
-  
-  // Check if the product is enabled
-  const productLicense = subscription.products?.find((p) => p.productType === productType);
-  
-  if (!productLicense) {
-    return {
-      valid: false,
-      error: `${productType} module is not included in your subscription`,
-      code: "PRODUCT_NOT_INCLUDED",
-    };
-  }
-  
-  if (!productLicense.isEnabled) {
-    return {
-      valid: false,
-      error: `${productType} module is disabled. Please contact support.`,
-      code: "PRODUCT_DISABLED",
-    };
-  }
-  
-  // Check usage limit
-  if (productLicense.currentUsage >= productLicense.usageLimit) {
-    return {
-      valid: false,
-      error: `${productType} usage limit exceeded. Please upgrade your subscription.`,
-      code: "USAGE_LIMIT_EXCEEDED",
-    };
-  }
-  
-  return {
-    valid: true,
-    subscription,
-    productLicense,
-  };
-}
-
-// ─── WhatsApp Cloud API Service Functions ───────────────────────
-async function sendWhatsAppCloudMessage(to, messageType, templateName, templateVariables, media, buttons, ctaUrl) {
-  try {
-    const apiUrl = `https://graph.facebook.com/${WHATSAPP_CONFIG.graphApiVersion}/${WHATSAPP_CONFIG.phoneNumberId}/messages`;
-    
-    let payload = {
-      messaging_product: "whatsapp",
-      to: to,
-      type: messageType === MessageType.INTERACTIVE_TEMPLATE ? "interactive" : messageType === MessageType.MEDIA_MESSAGE ? media?.type : "text",
-    };
-
-    if (messageType === MessageType.INTERACTIVE_TEMPLATE) {
-      // Interactive Template Message
-      payload.interactive = {
-        type: "template",
-        template: {
-          name: templateName,
-          language: { code: "en_US" },
-          components: [],
-        },
-      };
-
-      // Add header with media if provided
-      if (media && media.mediaId) {
-        payload.interactive.template.components.push({
-          type: "header",
-          parameters: [
-            {
-              type: media.type === MediaType.IMAGE ? "image" : media.type === MediaType.VIDEO ? "video" : "document",
-              [media.type === MediaType.IMAGE ? "image" : media.type === MediaType.VIDEO ? "video" : "document"]: {
-                id: media.mediaId,
-              },
-            },
-          ],
-        });
-      }
-
-      // Add body with variables
-      if (templateVariables) {
-        const bodyParams = Object.entries(templateVariables).map(([key, value]) => ({
-          type: "text",
-          text: value,
-        }));
-        payload.interactive.template.components.push({
-          type: "body",
-          parameters: bodyParams,
-        });
-      }
-
-      // Add buttons
-      if (buttons && buttons.length > 0) {
-        const buttonParams = buttons.map((btn, index) => {
-          if (btn.type === "QUICK_REPLY") {
-            return {
-              type: "quick_reply",
-              quick_reply: {
-                type: "quick_reply",
-                payload: btn.payload || `button_${index}`,
-              },
-            };
-          } else if (btn.type === "CTA_URL") {
-            return {
-              type: "action",
-              action: {
-                type: "open_url",
-                url: btn.url,
-              },
-            };
-          }
-        });
-        payload.interactive.template.components.push({
-          type: "button",
-          parameters: buttonParams,
-        });
-      }
-
-    } else if (messageType === MessageType.MEDIA_MESSAGE) {
-      // Media Message
-      payload[media.type] = {
-        link: media.url,
-        caption: media.caption || "",
-      };
-    }
-
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${WHATSAPP_CONFIG.accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.error?.message || "WhatsApp Cloud API error");
-    }
-
-    return {
-      success: true,
-      messageId: result.messages?.[0]?.id,
-      data: result,
-    };
-  } catch (error) {
-    console.error("WhatsApp Cloud API Error:", error);
-    return {
-      success: false,
-      error: error.message,
-    };
-  }
-}
-
-async function uploadMediaToWhatsApp(mediaFile) {
-  try {
-    const apiUrl = `https://graph.facebook.com/${WHATSAPP_CONFIG.graphApiVersion}/${WHATSAPP_CONFIG.phoneNumberId}/media`;
-    
-    const formData = new FormData();
-    formData.append("file", mediaFile.buffer, {
-      filename: mediaFile.originalname,
-      contentType: mediaFile.mimetype,
-    });
-    formData.append("messaging_product", "whatsapp");
-    formData.append("type", mediaFile.mimetype.startsWith("image") ? MediaType.IMAGE : 
-                    mediaFile.mimetype.startsWith("video") ? MediaType.VIDEO : MediaType.DOCUMENT);
-
-    const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${WHATSAPP_CONFIG.accessToken}`,
-      },
-      body: formData,
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.error?.message || "Media upload error");
-    }
-
-    return {
-      success: true,
-      mediaId: result.id,
-      data: result,
-    };
-  } catch (error) {
-    console.error("Media Upload Error:", error);
-    return {
-      success: false,
-      error: error.message,
-    };
-  }
-}
+// ─── Static Admin Configuration ───────────────────────────────────
+const ADMIN_EMAIL = "admin@gmail.com";
+const ADMIN_PASSWORD = "admin";
 
 // ─── Middleware ───────────────────────────────────────────────
 app.use(cors());
@@ -320,14 +28,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 const Gender = { MALE: "male", FEMALE: "female", OTHER: "other" };
 const SendStatus = { PENDING: "pending", SENT: "sent", FAILED: "failed" };
 const PortalType = { EMAIL: "email", WHATSAPP: "whatsapp" };
-const UserRole = { ADMIN: "admin", USER: "user", VIEWER: "viewer" };
-const AuthMethod = { GOOGLE: "google", USERNAME_PASSWORD: "username_password" };
 const ContactStatus = { ACTIVE: "active", INACTIVE: "inactive", DUMP: "dump" };
-
-// ─── SaaS Enums ───────────────────────────────────────────────
-const SubscriptionStatus = { ACTIVE: "active", EXPIRED: "expired", SUSPENDED: "suspended", TRIAL: "trial", PENDING: "pending" };
-const SubscriptionPlan = { FREE: "free", BASIC_MONTHLY: "basic_monthly", BASIC_YEARLY: "basic_yearly", PRO_MONTHLY: "pro_monthly", PRO_YEARLY: "pro_yearly", ENTERPRISE_MONTHLY: "enterprise_monthly", ENTERPRISE_YEARLY: "enterprise_yearly" };
-const ProductType = { EMAIL: "email", WHATSAPP: "whatsapp" };
 const MessageType = { INTERACTIVE_TEMPLATE: "interactive_template", MEDIA_MESSAGE: "media_message" };
 const MediaType = { IMAGE: "image", VIDEO: "video", DOCUMENT: "document", AUDIO: "audio" };
 
@@ -351,12 +52,7 @@ function ensureDB() {
       email_logs: [],
       whatsapp_campaigns: [],
       whatsapp_logs: [],
-      users: [],
       settings: [],
-      companies: [],
-      subscriptions: [],
-      webhook_events: [],
-      notifications: [],
     };
     writeDB(initialDB);
   } else {
@@ -367,738 +63,41 @@ function ensureDB() {
     db.email_logs = db.email_logs || [];
     db.whatsapp_campaigns = db.whatsapp_campaigns || [];
     db.whatsapp_logs = db.whatsapp_logs || [];
-    db.users = db.users || [];
     db.settings = db.settings || [];
-    db.companies = db.companies || [];
-    db.subscriptions = db.subscriptions || [];
-    db.webhook_events = db.webhook_events || [];
-    db.notifications = db.notifications || [];
     writeDB(db);
   }
 }
 ensureDB();
 
-// ─── Authentication Middleware ─────────────────────────────────
-function requireAuth(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ error: "Authorization header required" });
-  }
-
-  const token = authHeader.replace("Bearer ", "");
-  const decoded = verifyToken(token);
-
-  if (!decoded) {
-    return res.status(401).json({ error: "Invalid or expired token" });
-  }
-
-  req.user = decoded;
-  next();
-}
-
-function requireAdmin(req, res, next) {
-  if (!req.user || req.user.role !== UserRole.ADMIN) {
-    return res.status(403).json({ error: "Admin access required" });
-  }
-  next();
-}
 
 // ─── Authentication Endpoints ───────────────────────────────────
-// POST /api/auth/login - Email/Password login with company code
-app.post("/api/auth/login", async (req, res) => {
-  const { email, password, authMethod, companyCode } = req.body;
+// POST /api/auth/login - Static credentials login
+app.post("/api/auth/login", (req, res) => {
+  const { email, password } = req.body;
   
-  if (authMethod === AuthMethod.USERNAME_PASSWORD) {
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password are required" });
-    }
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email and password are required" });
+  }
 
-    const db = readDB();
-    let user = db.users.find((u) => u.email === email.toLowerCase());
-    
-    // SPECIAL RULE: MASTER ADMIN - patilparth127@gmail.com
-    // This user must always be able to login successfully
-    if (email === MASTER_ADMIN_EMAIL) {
-      // If user doesn't exist, create them automatically
-      if (!user) {
-        user = {
-          id: uuidv4(),
-          email: MASTER_ADMIN_EMAIL,
-          username: MASTER_ADMIN_EMAIL,
-          name: "Master Admin",
-          role: UserRole.ADMIN,
-          authMethod: AuthMethod.USERNAME_PASSWORD,
-          password: await hashPassword(password),
-          companyId: null,
-          companyCode: null,
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString(),
-        };
-        db.users.push(user);
-        writeDB(db);
-      } else {
-        // Update password if it doesn't match (for convenience)
-        const passwordMatch = await comparePassword(password, user.password);
-        if (!passwordMatch) {
-          user.password = await hashPassword(password);
-        }
-        user.lastLoginAt = new Date().toISOString();
-        writeDB(db);
-      }
-
-      // Remove password from response
-      const { password: _, ...userWithoutPassword } = user;
-
-      const token = generateToken(user);
-
-      return res.json({
-        success: true,
-        user: userWithoutPassword,
-        token,
-      });
-    }
-
-    // Normal user authentication - require company code
-    if (!companyCode) {
-      return res.status(400).json({ error: "Company code is required" });
-    }
-
-    if (!user) {
-      return res.status(401).json({ error: "Invalid email or password" });
-    }
-
-    // Validate company code
-    if (user.companyCode !== companyCode.toUpperCase()) {
-      return res.status(401).json({ error: "Invalid company code" });
-    }
-
-    // Compare password using bcrypt
-    const passwordMatch = await comparePassword(password, user.password);
-    if (!passwordMatch) {
-      return res.status(401).json({ error: "Invalid email or password" });
-    }
-
-    user.lastLoginAt = new Date().toISOString();
-    writeDB(db);
-
-    // Get company details if user has a company
-    let company = null;
-    if (user.companyId) {
-      company = db.companies?.find((c) => c.id === user.companyId);
-      if (company) {
-        const { password: _, ...companyWithoutPassword } = company;
-        company = companyWithoutPassword;
-      }
-    }
-
-    // Remove password from response
-    const { password: _, emailPassword: __, ...userWithoutPassword } = user;
-
-    const token = generateToken(user);
-
-    res.json({
+  if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
+    return res.json({
       success: true,
-      user: userWithoutPassword,
-      company,
-      token,
+      user: {
+        email: ADMIN_EMAIL,
+        name: "Admin",
+        isAdmin: true,
+      },
     });
-  } else {
-    return res.status(400).json({ error: "Invalid auth method" });
-  }
-});
-
-// POST /api/auth/google
-app.post("/api/auth/google", async (req, res) => {
-  const { token } = req.body;
-  
-  if (!token) {
-    return res.status(400).json({ error: "Google token is required" });
   }
 
-  // In production, verify the Google token with Google's API
-  // For demo purposes, we'll create a user from the token
-  const db = readDB();
-  
-  // Demo: Extract email from token (in production, verify with Google)
-  // For now, we'll just create a demo user
-  const demoUser = {
-    id: uuidv4(),
-    email: AUTHORIZED_EMAIL,
-    name: "Demo User",
-    picture: null,
-    googleId: "demo-google-id",
-    role: UserRole.ADMIN,
-    authMethod: AuthMethod.GOOGLE,
-    companyId: null,
-    createdAt: new Date().toISOString(),
-    lastLoginAt: new Date().toISOString(),
-  };
-
-  // Check if user exists
-  let user = db.users.find((u) => u.email === demoUser.email);
-  if (!user) {
-    user = demoUser;
-    db.users.push(user);
-    writeDB(db);
-  } else {
-    user.lastLoginAt = new Date().toISOString();
-    writeDB(db);
-  }
-
-  // Remove password from response if exists
-  const { password: _, ...userWithoutPassword } = user;
-
-  const jwtToken = generateToken(user);
-
-  res.json({
-    success: true,
-    user: userWithoutPassword,
-    token: jwtToken,
-  });
-});
-
-// GET /api/auth/me
-app.get("/api/auth/me", (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ error: "Authorization required" });
-  }
-
-  const token = authHeader.replace("Bearer ", "");
-  const decoded = verifyToken(token);
-
-  if (!decoded) {
-    return res.status(401).json({ error: "Invalid or expired token" });
-  }
-
-  const db = readDB();
-  const user = db.users.find((u) => u.id === decoded.userId);
-
-  if (!user) {
-    return res.status(404).json({ error: "User not found" });
-  }
-
-  // Remove password from response
-  const { password: _, ...userWithoutPassword } = user;
-
-  res.json({
-    success: true,
-    user: userWithoutPassword,
-  });
+  return res.status(401).json({ error: "Invalid credentials" });
 });
 
 // POST /api/auth/logout
 app.post("/api/auth/logout", (req, res) => {
-  // In production, invalidate JWT token
   res.json({ success: true, message: "Logged out successfully" });
 });
 
-// ─── User Management Endpoints (Admin only) ───────────────────────
-// GET /api/users
-app.get("/api/users", requireAuth, requireAdmin, (req, res) => {
-  const db = readDB();
-  // Remove passwords from response
-  const usersWithoutPasswords = db.users.map(({ password: _, ...user }) => user);
-  res.json(usersWithoutPasswords);
-});
-
-// POST /api/users - Create new user (Admin only)
-app.post("/api/users", requireAuth, requireAdmin, async (req, res) => {
-  const db = readDB();
-
-  const { username, password, email, name, role, mobileNumber, companyId, companyCode, whatsappNumber, emailHost, emailPassword, emailPort } = req.body;
-
-  if (!username || !password || !email || !name || !mobileNumber) {
-    return res.status(400).json({ error: "Username, password, email, name, and mobile number are required" });
-  }
-
-  // Check if username or email already exists
-  if (db.users.find((u) => u.username === username)) {
-    return res.status(400).json({ error: "Username already exists" });
-  }
-  if (db.users.find((u) => u.email === email)) {
-    return res.status(400).json({ error: "Email already exists" });
-  }
-
-  // Validate company if provided
-  if (companyId) {
-    const company = db.companies?.find((c) => c.id === companyId);
-    if (!company) {
-      return res.status(400).json({ error: "Company not found" });
-    }
-  }
-
-  const hashedPassword = await hashPassword(password);
-
-  const newUser = {
-    id: uuidv4(),
-    username,
-    password: hashedPassword,
-    email: email.toLowerCase(),
-    name,
-    mobileNumber: String(mobileNumber).trim(),
-    whatsappNumber: whatsappNumber ? String(whatsappNumber).trim() : null,
-    emailHost: emailHost || null,
-    emailPassword: emailPassword || null,
-    emailPort: emailPort || 587,
-    role: role || UserRole.USER,
-    authMethod: AuthMethod.USERNAME_PASSWORD,
-    companyId: companyId || null,
-    companyCode: companyCode ? String(companyCode).trim().toUpperCase() : null,
-    createdAt: new Date().toISOString(),
-    lastLoginAt: new Date().toISOString(),
-  };
-
-  db.users.push(newUser);
-  writeDB(db);
-
-  // Remove password from response
-  const { password: _, emailPassword: __, ...userWithoutPassword } = newUser;
-
-  res.status(201).json(userWithoutPassword);
-});
-
-// PUT /api/users/:id - Update user (Admin only)
-app.put("/api/users/:id", requireAuth, requireAdmin, async (req, res) => {
-  const userId = req.params.id;
-  const db = readDB();
-  const userIndex = db.users.findIndex((u) => u.id === userId);
-
-  if (userIndex === -1) {
-    return res.status(404).json({ error: "User not found" });
-  }
-
-  const { name, role, password } = req.body;
-
-  // Update user
-  if (name) db.users[userIndex].name = name;
-  if (role) db.users[userIndex].role = role;
-  if (password) db.users[userIndex].password = await hashPassword(password);
-
-  db.users[userIndex].updatedAt = new Date().toISOString();
-  writeDB(db);
-
-  // Remove password from response
-  const { password: _, ...userWithoutPassword } = db.users[userIndex];
-
-  res.json(userWithoutPassword);
-});
-
-// DELETE /api/users/:id - Delete user (Admin only)
-app.delete("/api/users/:id", requireAuth, requireAdmin, (req, res) => {
-  const userId = req.params.id;
-  const db = readDB();
-
-  // Prevent deleting yourself
-  if (userId === req.user.userId) {
-    return res.status(400).json({ error: "Cannot delete your own account" });
-  }
-
-  const userIndex = db.users.findIndex((u) => u.id === userId);
-
-  if (userIndex === -1) {
-    return res.status(404).json({ error: "User not found" });
-  }
-
-  db.users.splice(userIndex, 1);
-  writeDB(db);
-
-  res.json({ success: true, message: "User deleted successfully" });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// COMPANY MANAGEMENT (SaaS Multi-Company Architecture)
-// ═══════════════════════════════════════════════════════════════
-
-// GET /api/companies
-app.get("/api/companies", requireAuth, requireAdmin, (req, res) => {
-  const db = readDB();
-  res.json(db.companies || []);
-});
-
-// GET /api/companies/:id
-app.get("/api/companies/:id", requireAuth, requireAdmin, (req, res) => {
-  const db = readDB();
-  const company = db.companies?.find((c) => c.id === req.params.id);
-  if (!company) {
-    return res.status(404).json({ error: "Company not found" });
-  }
-  res.json(company);
-});
-
-// POST /api/companies
-app.post("/api/companies", requireAuth, requireAdmin, async (req, res) => {
-  const { name, domain, contactEmail, contactPhone, address, companyCode, password } = req.body;
-
-  if (!name || !contactEmail || !contactPhone || !companyCode || !password) {
-    return res.status(400).json({ error: "Name, contact email, contact phone, company code, and password are required" });
-  }
-
-  const db = readDB();
-  
-  // Check if company code already exists
-  if (db.companies.find((c) => c.companyCode === companyCode)) {
-    return res.status(400).json({ error: "Company code already exists" });
-  }
-
-  const hashedPassword = await hashPassword(password);
-
-  const company = {
-    id: uuidv4(),
-    name: String(name).trim(),
-    domain: domain ? String(domain).trim() : undefined,
-    contactEmail: String(contactEmail).trim().toLowerCase(),
-    contactPhone: String(contactPhone).trim(),
-    companyCode: String(companyCode).trim().toUpperCase(),
-    password: hashedPassword,
-    address: address || undefined,
-    isActive: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  db.companies = db.companies || [];
-  db.companies.push(company);
-  
-  // Create a default admin user for this company
-  const defaultUser = {
-    id: uuidv4(),
-    username: contactEmail.split('@')[0],
-    password: hashedPassword,
-    email: String(contactEmail).trim().toLowerCase(),
-    name: String(name).trim(),
-    mobileNumber: String(contactPhone).trim(),
-    whatsappNumber: null,
-    emailHost: null,
-    emailPassword: null,
-    emailPort: 587,
-    role: UserRole.ADMIN,
-    authMethod: AuthMethod.USERNAME_PASSWORD,
-    companyId: company.id,
-    companyCode: String(companyCode).trim().toUpperCase(),
-    createdAt: new Date().toISOString(),
-    lastLoginAt: new Date().toISOString(),
-  };
-  
-  db.users = db.users || [];
-  db.users.push(defaultUser);
-  
-  writeDB(db);
-
-  // Remove password from response
-  const { password: _, ...companyWithoutPassword } = company;
-
-  res.status(201).json(companyWithoutPassword);
-});
-
-// PUT /api/companies/:id
-app.put("/api/companies/:id", requireAuth, requireAdmin, (req, res) => {
-  const { name, domain, contactEmail, contactPhone, address, isActive } = req.body;
-
-  const db = readDB();
-  const idx = db.companies?.findIndex((c) => c.id === req.params.id);
-
-  if (idx === -1) {
-    return res.status(404).json({ error: "Company not found" });
-  }
-
-  const company = db.companies[idx];
-  if (name) company.name = String(name).trim();
-  if (domain !== undefined) company.domain = domain ? String(domain).trim() : undefined;
-  if (contactEmail) company.contactEmail = String(contactEmail).trim().toLowerCase();
-  if (contactPhone) company.contactPhone = String(contactPhone).trim();
-  if (address !== undefined) company.address = address;
-  if (isActive !== undefined) company.isActive = isActive;
-  company.updatedAt = new Date().toISOString();
-
-  writeDB(db);
-  res.json(company);
-});
-
-// DELETE /api/companies/:id
-app.delete("/api/companies/:id", requireAuth, requireAdmin, (req, res) => {
-  const db = readDB();
-  const idx = db.companies?.findIndex((c) => c.id === req.params.id);
-
-  if (idx === -1) {
-    return res.status(404).json({ error: "Company not found" });
-  }
-
-  db.companies.splice(idx, 1);
-  writeDB(db);
-  res.json({ success: true, message: "Company deleted successfully" });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// SUBSCRIPTION MANAGEMENT
-// ═══════════════════════════════════════════════════════════════
-
-// GET /api/subscriptions
-app.get("/api/subscriptions", (req, res) => {
-  const db = readDB();
-  res.json(db.subscriptions || []);
-});
-
-// GET /api/subscriptions/:id
-app.get("/api/subscriptions/:id", (req, res) => {
-  const db = readDB();
-  const subscription = db.subscriptions?.find((s) => s.id === req.params.id);
-  if (!subscription) {
-    return res.status(404).json({ error: "Subscription not found" });
-  }
-  res.json(subscription);
-});
-
-// GET /api/companies/:companyId/subscription
-app.get("/api/companies/:companyId/subscription", (req, res) => {
-  const db = readDB();
-  const subscription = db.subscriptions?.find((s) => s.companyId === req.params.companyId);
-  if (!subscription) {
-    return res.status(404).json({ error: "Subscription not found for this company" });
-  }
-  res.json(subscription);
-});
-
-// POST /api/subscriptions
-app.post("/api/subscriptions", (req, res) => {
-  const { companyId, plan, products, autoRenew } = req.body;
-
-  if (!companyId || !plan) {
-    return res.status(400).json({ error: "Company ID and plan are required" });
-  }
-
-  const db = readDB();
-  
-  // Check if company exists
-  const company = db.companies?.find((c) => c.id === companyId);
-  if (!company) {
-    return res.status(404).json({ error: "Company not found" });
-  }
-
-  // Calculate subscription dates based on plan
-  const startDate = new Date();
-  const endDate = new Date();
-  
-  if (plan.includes("yearly")) {
-    endDate.setFullYear(endDate.getFullYear() + 1);
-  } else {
-    endDate.setMonth(endDate.getMonth() + 1);
-  }
-
-  // Add trial period for non-free plans
-  let trialEndDate = undefined;
-  if (plan !== SubscriptionPlan.FREE) {
-    trialEndDate = new Date();
-    trialEndDate.setDate(trialEndDate.getDate() + 14); // 14-day trial
-  }
-
-  // Initialize product licenses
-  const productLicenses = [];
-  if (products && Array.isArray(products)) {
-    products.forEach((productType) => {
-      if (Object.values(ProductType).includes(productType)) {
-        productLicenses.push({
-          productType,
-          isEnabled: true,
-          usageLimit: plan.includes("enterprise") ? 100000 : plan.includes("pro") ? 10000 : 1000,
-          currentUsage: 0,
-          resetDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days
-        });
-      }
-    });
-  }
-
-  const subscription = {
-    id: uuidv4(),
-    companyId,
-    plan,
-    status: SubscriptionStatus.ACTIVE,
-    startDate: startDate.toISOString(),
-    endDate: endDate.toISOString(),
-    trialEndDate: trialEndDate?.toISOString(),
-    autoRenew: autoRenew !== undefined ? autoRenew : true,
-    products: productLicenses,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  db.subscriptions = db.subscriptions || [];
-  db.subscriptions.push(subscription);
-
-  // Create notification for master admin
-  const notification = {
-    id: uuidv4(),
-    type: "subscription_purchase",
-    title: "New Subscription Purchase",
-    message: `Company "${company.name}" has purchased the ${plan} plan.`,
-    companyId: companyId,
-    subscriptionId: subscription.id,
-    isRead: false,
-    createdAt: new Date().toISOString(),
-  };
-
-  db.notifications = db.notifications || [];
-  db.notifications.push(notification);
-
-  writeDB(db);
-
-  res.status(201).json(subscription);
-});
-
-// PUT /api/subscriptions/:id
-app.put("/api/subscriptions/:id", (req, res) => {
-  const { plan, status, autoRenew, products } = req.body;
-
-  const db = readDB();
-  const idx = db.subscriptions?.findIndex((s) => s.id === req.params.id);
-
-  if (idx === -1) {
-    return res.status(404).json({ error: "Subscription not found" });
-  }
-
-  const subscription = db.subscriptions[idx];
-  if (plan) subscription.plan = plan;
-  if (status) subscription.status = status;
-  if (autoRenew !== undefined) subscription.autoRenew = autoRenew;
-  if (products) {
-    subscription.products = products;
-  }
-  subscription.updatedAt = new Date().toISOString();
-
-  writeDB(db);
-  res.json(subscription);
-});
-
-// DELETE /api/subscriptions/:id
-app.delete("/api/subscriptions/:id", (req, res) => {
-  const db = readDB();
-  const idx = db.subscriptions?.findIndex((s) => s.id === req.params.id);
-
-  if (idx === -1) {
-    return res.status(404).json({ error: "Subscription not found" });
-  }
-
-  db.subscriptions.splice(idx, 1);
-  writeDB(db);
-  res.json({ success: true, message: "Subscription deleted successfully" });
-});
-
-// ─── Notification Endpoints (Admin only) ─────────────────────────
-// GET /api/notifications - Get all notifications for admin
-app.get("/api/notifications", (req, res) => {
-  const db = readDB();
-  const notifications = db.notifications || [];
-  
-  // Sort by createdAt descending (newest first)
-  const sortedNotifications = notifications.sort((a, b) => 
-    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
-  
-  res.json(sortedNotifications);
-});
-
-// PUT /api/notifications/:id/read - Mark notification as read
-app.put("/api/notifications/:id/read", (req, res) => {
-  const db = readDB();
-  const idx = db.notifications?.findIndex((n) => n.id === req.params.id);
-  
-  if (idx === -1) {
-    return res.status(404).json({ error: "Notification not found" });
-  }
-  
-  db.notifications[idx].isRead = true;
-  writeDB(db);
-  
-  res.json({ success: true, message: "Notification marked as read" });
-});
-
-// PUT /api/notifications/read-all - Mark all notifications as read
-app.put("/api/notifications/read-all", (req, res) => {
-  const db = readDB();
-  
-  if (db.notifications) {
-    db.notifications.forEach((n) => {
-      n.isRead = true;
-    });
-    writeDB(db);
-  }
-  
-  res.json({ success: true, message: "All notifications marked as read" });
-});
-
-// DELETE /api/notifications/:id - Delete notification
-app.delete("/api/notifications/:id", (req, res) => {
-  const db = readDB();
-  const idx = db.notifications?.findIndex((n) => n.id === req.params.id);
-  
-  if (idx === -1) {
-    return res.status(404).json({ error: "Notification not found" });
-  }
-  
-  db.notifications.splice(idx, 1);
-  writeDB(db);
-  
-  res.json({ success: true, message: "Notification deleted successfully" });
-});
-
-// ─── Service Toggle Endpoints (Admin only) ────────────────────────
-// PUT /api/companies/:id/toggle-service - Toggle service for a company
-app.put("/api/companies/:id/toggle-service", (req, res) => {
-  const { serviceType, enabled } = req.body;
-  
-  if (!serviceType || typeof enabled !== "boolean") {
-    return res.status(400).json({ error: "serviceType and enabled are required" });
-  }
-  
-  if (!Object.values(ProductType).includes(serviceType)) {
-    return res.status(400).json({ error: "Invalid service type" });
-  }
-  
-  const db = readDB();
-  const companyIdx = db.companies?.findIndex((c) => c.id === req.params.id);
-  
-  if (companyIdx === -1) {
-    return res.status(404).json({ error: "Company not found" });
-  }
-  
-  // Find or create subscription for this company
-  let subscription = db.subscriptions?.find((s) => s.companyId === req.params.id);
-  
-  if (!subscription) {
-    return res.status(404).json({ error: "Subscription not found for this company" });
-  }
-  
-  // Find the product license for the service type
-  const productIdx = subscription.products?.findIndex((p) => p.productType === serviceType);
-  
-  if (productIdx === -1) {
-    return res.status(404).json({ error: "Product license not found for this service" });
-  }
-  
-  // Toggle the service
-  subscription.products[productIdx].isEnabled = enabled;
-  subscription.updatedAt = new Date().toISOString();
-  
-  writeDB(db);
-  
-  res.json({
-    success: true,
-    message: `Service ${serviceType} ${enabled ? "enabled" : "disabled"} for company`,
-    subscription,
-  });
-});
-
-// GET /api/companies/:id/services - Get service status for a company
-app.get("/api/companies/:id/services", (req, res) => {
-  const db = readDB();
-  const subscription = db.subscriptions?.find((s) => s.companyId === req.params.id);
-  
-  if (!subscription) {
-    return res.status(404).json({ error: "Subscription not found for this company" });
-  }
-  
-  res.json(subscription.products || []);
-});
 
 // ─── Settings Endpoints ─────────────────────────────────────────
 // GET /api/settings
@@ -1301,22 +300,9 @@ async function sendWhatsAppMessage(number, message) {
 // ═══════════════════════════════════════════════════════════════
 
 // GET /api/contacts
-app.get("/api/contacts", authenticateUser, (req, res) => {
+app.get("/api/contacts", (req, res) => {
   const db = readDB();
-  
-  // If user is master admin, return all contacts
-  if (req.user.email === MASTER_ADMIN_EMAIL) {
-    return res.json(db.contacts);
-  }
-  
-  // Otherwise, filter by company ID
-  if (req.user.companyId) {
-    const companyContacts = db.contacts.filter((c) => c.companyId === req.user.companyId);
-    return res.json(companyContacts);
-  }
-  
-  // If no company ID, return empty array
-  res.json([]);
+  res.json(db.contacts);
 });
 
 // POST /api/contacts (single)
@@ -1385,14 +371,6 @@ app.delete("/api/contacts/:id", (req, res) => {
 
 // DELETE /api/contacts (all)
 app.delete("/api/contacts", (req, res) => {
-  const authHeader = req.headers.authorization;
-  const userEmail = authHeader ? authHeader.replace("Bearer ", "") : null;
-  
-  // Only allow authorized email to delete all contacts
-  if (userEmail !== AUTHORIZED_EMAIL) {
-    return res.status(403).json({ error: "You don't have permission to delete all contacts" });
-  }
-  
   const db = readDB();
   db.contacts = [];
   writeDB(db);
@@ -1510,26 +488,13 @@ app.post("/api/upload-excel", upload.single("file"), (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 
 // GET /api/email-campaigns
-app.get("/api/email-campaigns", authenticateUser, (req, res) => {
+app.get("/api/email-campaigns", (req, res) => {
   const db = readDB();
-  
-  // If user is master admin, return all campaigns
-  if (req.user.email === MASTER_ADMIN_EMAIL) {
-    return res.json(db.email_campaigns);
-  }
-  
-  // Otherwise, filter by company ID
-  if (req.user.companyId) {
-    const companyCampaigns = db.email_campaigns.filter((c) => c.companyId === req.user.companyId);
-    return res.json(companyCampaigns);
-  }
-  
-  // If no company ID, return empty array
-  res.json([]);
+  res.json(db.email_campaigns);
 });
 
 // POST /api/email-campaigns/send
-app.post("/api/email-campaigns/send", authenticateUser, async (req, res) => {
+app.post("/api/email-campaigns/send", async (req, res) => {
   const {
     subject,
     body,
@@ -1538,41 +503,12 @@ app.post("/api/email-campaigns/send", authenticateUser, async (req, res) => {
     smtpHost,
     smtpPort,
     contactIds,
-    companyId,
   } = req.body;
 
-  // Use authenticated user's email credentials if not provided
-  let finalFromEmail = fromEmail;
-  let finalFromPassword = fromPassword;
-  let finalSmtpHost = smtpHost;
-  let finalSmtpPort = smtpPort;
-
-  if (!finalFromEmail && req.user) {
-    const db = readDB();
-    const user = db.users.find((u) => u.id === req.user.userId);
-    if (user && user.emailHost && user.emailPassword) {
-      finalFromEmail = user.email;
-      finalFromPassword = user.emailPassword;
-      finalSmtpHost = user.emailHost || "smtp.gmail.com";
-      finalSmtpPort = user.emailPort || 587;
-    }
-  }
-
-  if (!subject || !body || !finalFromEmail || !finalFromPassword || !contactIds?.length) {
+  if (!subject || !body || !fromEmail || !fromPassword || !contactIds?.length) {
     return res.status(400).json({
-      error: "subject, body, fromEmail, fromPassword, and contactIds are required. Please configure your email credentials in your profile.",
+      error: "subject, body, fromEmail, fromPassword, and contactIds are required.",
     });
-  }
-
-  // Validate subscription for EMAIL module
-  if (companyId) {
-    const validation = validateSubscription(companyId, ProductType.EMAIL);
-    if (!validation.valid) {
-      return res.status(403).json({ 
-        error: validation.error,
-        code: validation.code,
-      });
-    }
   }
 
   const db = readDB();
@@ -1586,9 +522,9 @@ app.post("/api/email-campaigns/send", authenticateUser, async (req, res) => {
     id: uuidv4(),
     subject,
     body,
-    fromEmail: finalFromEmail,
-    smtpHost: finalSmtpHost || "smtp.gmail.com",
-    smtpPort: finalSmtpPort || 587,
+    fromEmail,
+    smtpHost: smtpHost || "smtp.gmail.com",
+    smtpPort: smtpPort || 587,
     totalTargets: targets.length,
     sentCount: 0,
     failedCount: 0,
@@ -1596,7 +532,6 @@ app.post("/api/email-campaigns/send", authenticateUser, async (req, res) => {
     createdAt: new Date().toISOString(),
     completedAt: null,
     logs: [],
-    userId: req.user.userId,
   };
 
   db.email_campaigns.push(campaign);
@@ -1605,10 +540,10 @@ app.post("/api/email-campaigns/send", authenticateUser, async (req, res) => {
   let transporter;
   try {
     transporter = nodemailer.createTransport({
-      host: finalSmtpHost || "smtp.gmail.com",
-      port: finalSmtpPort || 587,
+      host: smtpHost || "smtp.gmail.com",
+      port: smtpPort || 587,
       secure: false,
-      auth: { user: finalFromEmail, pass: finalFromPassword },
+      auth: { user: fromEmail, pass: fromPassword },
       tls: { rejectUnauthorized: false },
     });
   } catch (err) {
@@ -1746,41 +681,17 @@ app.post("/api/whatsapp-reset", async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 
 // GET /api/whatsapp-campaigns
-app.get("/api/whatsapp-campaigns", authenticateUser, (req, res) => {
+app.get("/api/whatsapp-campaigns", (req, res) => {
   const db = readDB();
-  
-  // If user is master admin, return all campaigns
-  if (req.user.email === MASTER_ADMIN_EMAIL) {
-    return res.json(db.whatsapp_campaigns);
-  }
-  
-  // Otherwise, filter by company ID
-  if (req.user.companyId) {
-    const companyCampaigns = db.whatsapp_campaigns.filter((c) => c.companyId === req.user.companyId);
-    return res.json(companyCampaigns);
-  }
-  
-  // If no company ID, return empty array
-  res.json([]);
+  res.json(db.whatsapp_campaigns);
 });
 
 // POST /api/whatsapp-campaigns/send
-app.post("/api/whatsapp-campaigns/send", authenticateUser, async (req, res) => {
-  const { message, contactIds, hasReplyButtons, replyOptions, companyId } = req.body;
+app.post("/api/whatsapp-campaigns/send", async (req, res) => {
+  const { message, contactIds, hasReplyButtons, replyOptions } = req.body;
 
   if (!message || !contactIds?.length) {
     return res.status(400).json({ error: "message and contactIds are required" });
-  }
-
-  // Validate subscription for WHATSAPP module
-  if (companyId) {
-    const validation = validateSubscription(companyId, ProductType.WHATSAPP);
-    if (!validation.valid) {
-      return res.status(403).json({ 
-        error: validation.error,
-        code: validation.code,
-      });
-    }
   }
 
   const state = await getWhatsAppRuntimeState();
@@ -1815,7 +726,6 @@ app.post("/api/whatsapp-campaigns/send", authenticateUser, async (req, res) => {
     logs: [],
     hasReplyButtons: hasReplyButtons || false,
     replyOptions: hasReplyButtons && replyOptions ? replyOptions : undefined,
-    userId: req.user.userId,
   };
 
   db.whatsapp_campaigns.push(campaign);
@@ -1919,222 +829,6 @@ app.get("/api/upload-sessions", (req, res) => {
 });
 
 
-// ═══════════════════════════════════════════════════════════════
-// WHATSAPP CLOUD API ENDPOINTS (Graph API v20.0)
-// ═══════════════════════════════════════════════════════════════
-
-// POST /api/whatsapp-cloud/send-message
-app.post("/api/whatsapp-cloud/send-message", async (req, res) => {
-  const { companyId, messageType, recipients, templateName, templateVariables, media, buttons, ctaUrl } = req.body;
-
-  if (!companyId || !messageType || !recipients || !Array.isArray(recipients)) {
-    return res.status(400).json({ error: "companyId, messageType, and recipients array are required" });
-  }
-
-  // Check if company has WhatsApp subscription
-  const db = readDB();
-  const subscription = db.subscriptions?.find((s) => s.companyId === companyId);
-  if (!subscription) {
-    return res.status(403).json({ error: "No subscription found for this company" });
-  }
-
-  const whatsappLicense = subscription.products?.find((p) => p.productType === ProductType.WHATSAPP);
-  if (!whatsappLicense || !whatsappLicense.isEnabled) {
-    return res.status(403).json({ error: "WhatsApp module not enabled for this company" });
-  }
-
-  // Check usage limit
-  if (whatsappLicense.currentUsage >= whatsappLicense.usageLimit) {
-    return res.status(429).json({ error: "WhatsApp usage limit exceeded" });
-  }
-
-  const results = [];
-  let successCount = 0;
-  let failedCount = 0;
-
-  for (const recipient of recipients) {
-    const result = await sendWhatsAppCloudMessage(
-      recipient,
-      messageType,
-      templateName,
-      templateVariables,
-      media,
-      buttons,
-      ctaUrl
-    );
-
-    if (result.success) {
-      successCount++;
-      // Update usage
-      whatsappLicense.currentUsage++;
-    } else {
-      failedCount++;
-    }
-
-    results.push({
-      recipient,
-      success: result.success,
-      messageId: result.messageId,
-      error: result.error,
-    });
-
-    // Small delay to avoid rate limiting
-    await new Promise((r) => setTimeout(r, 1000));
-  }
-
-  // Update subscription in DB
-  const subIdx = db.subscriptions.findIndex((s) => s.id === subscription.id);
-  if (subIdx !== -1) {
-    db.subscriptions[subIdx].products = subscription.products;
-    db.subscriptions[subIdx].updatedAt = new Date().toISOString();
-    writeDB(db);
-  }
-
-  res.json({
-    success: true,
-    totalRecipients: recipients.length,
-    sentCount: successCount,
-    failedCount,
-    results,
-  });
-});
-
-// POST /api/whatsapp-cloud/upload-media
-app.post("/api/whatsapp-cloud/upload-media", upload.single("media"), async (req, res) => {
-  if (!req.file) {
-    return res.status(400).json({ error: "Media file is required" });
-  }
-
-  const result = await uploadMediaToWhatsApp(req.file);
-
-  if (result.success) {
-    res.json({
-      success: true,
-      mediaId: result.mediaId,
-      data: result.data,
-    });
-  } else {
-    res.status(500).json({
-      success: false,
-      error: result.error,
-    });
-  }
-});
-
-// ═══════════════════════════════════════════════════════════════
-// WHATSAPP WEBHOOK SYSTEM
-// ═══════════════════════════════════════════════════════════════
-
-// GET /api/whatsapp-webhook - Meta verification
-app.get("/api/whatsapp-webhook", (req, res) => {
-  const mode = req.query["hub.mode"];
-  const token = req.query["hub.verify_token"];
-  const challenge = req.query["hub.challenge"];
-
-  if (mode === "subscribe" && token === WHATSAPP_CONFIG.webhookVerifyToken) {
-    console.log("Webhook verified successfully");
-    res.status(200).send(challenge);
-  } else {
-    res.sendStatus(403);
-  }
-});
-
-// POST /api/whatsapp-webhook - Event receiver
-app.post("/api/whatsapp-webhook", async (req, res) => {
-  try {
-    const webhookEvent = req.body;
-
-    // Store webhook event for processing
-    const db = readDB();
-    const event = {
-      id: uuidv4(),
-      event: webhookEvent,
-      receivedAt: new Date().toISOString(),
-      processed: false,
-    };
-
-    db.webhook_events = db.webhook_events || [];
-    db.webhook_events.push(event);
-    writeDB(db);
-
-    console.log("Webhook event received:", JSON.stringify(webhookEvent, null, 2));
-
-    // Process messages and button clicks
-    if (webhookEvent.entry && webhookEvent.entry[0]?.changes) {
-      for (const change of webhookEvent.entry[0].changes) {
-        if (change.field === "messages" && change.value?.messages) {
-          for (const message of change.value.messages) {
-            // Handle button clicks
-            if (message.interactive?.button_reply) {
-              console.log("Button clicked:", message.interactive.button_reply);
-              // Trigger automated follow-up flow based on payload
-              await handleButtonReply(message, change.value.metadata.phone_number_id);
-            }
-            // Handle list replies
-            else if (message.interactive?.list_reply) {
-              console.log("List item selected:", message.interactive.list_reply);
-              await handleListReply(message, change.value.metadata.phone_number_id);
-            }
-            // Handle text messages
-            else if (message.text) {
-              console.log("Text message received:", message.text.body);
-              await handleTextMessage(message, change.value.metadata.phone_number_id);
-            }
-          }
-        }
-        // Handle message status updates
-        else if (change.field === "messages" && change.value?.statuses) {
-          for (const status of change.value.statuses) {
-            console.log("Message status update:", status.status, "for message:", status.id);
-            await updateMessageStatus(status);
-          }
-        }
-      }
-    }
-
-    res.status(200).json({ success: true });
-  } catch (error) {
-    console.error("Webhook processing error:", error);
-    res.status(500).json({ error: "Webhook processing failed" });
-  }
-});
-
-// ─── Webhook Handler Functions ───────────────────────────────────
-async function handleButtonReply(message, phoneNumberId) {
-  const db = readDB();
-  const { from, interactive } = message;
-  const { payload, title } = interactive.button_reply;
-
-  // Store or process the button reply
-  console.log(`Button reply from ${from}: ${title} (payload: ${payload})`);
-
-  // You can trigger automated follow-up flows here based on payload
-  // Example: if payload === "interested", send follow-up message
-}
-
-async function handleListReply(message, phoneNumberId) {
-  const db = readDB();
-  const { from, interactive } = message;
-  const { id, title } = interactive.list_reply;
-
-  console.log(`List reply from ${from}: ${title} (id: ${id})`);
-}
-
-async function handleTextMessage(message, phoneNumberId) {
-  const db = readDB();
-  const { from, text } = message;
-
-  console.log(`Text message from ${from}: ${text.body}`);
-}
-
-async function updateMessageStatus(status) {
-  const db = readDB();
-  const { id: messageId, status: messageStatus, recipient_id } = status;
-
-  // Update campaign log status based on WhatsApp message status
-  // This would require mapping WhatsApp message IDs to campaign log IDs
-  console.log(`Message ${messageId} status updated to ${messageStatus} for recipient ${recipient_id}`);
-}
 
 // ─── Health ──────────────────────────────────────────────────
 app.get("/api/health", (req, res) => {
