@@ -1,6 +1,6 @@
-# 📨 BulkSend — Multi-Tenant Bulk Email & WhatsApp Messenger
+# 📨 BulkSend — Bulk Email & WhatsApp Messenger
 
-A full-stack SaaS application for sending bulk emails and WhatsApp messages. Features multi-company support, subscription management, user authentication, and contact management with Excel import.
+A full-stack application for sending bulk emails and WhatsApp messages. Features contact management with Excel import, campaign tracking, and site-based organization.
 
 ---
 
@@ -10,7 +10,7 @@ A full-stack SaaS application for sending bulk emails and WhatsApp messages. Fea
 bulk-messenger/
 ├── backend/           ← Node.js + Express API
 │   ├── server.js      ← Main API server (port 3200)
-│   ├── db.json        ← JSON Server database (auto-managed)
+│   ├── db.json        ← JSON database (auto-managed)
 │   └── package.json
 ├── frontend/          ← React + TypeScript UI
 │   ├── src/
@@ -25,10 +25,7 @@ bulk-messenger/
 │   │       ├── EmailPortal.tsx
 │   │       ├── WhatsAppPortal.tsx
 │   │       ├── Login.tsx
-│   │       ├── UserManagement.tsx
-│   │       ├── CompanyManagement.tsx
-│   │       ├── AdminDashboard.tsx
-│   │       ├── SubscriptionManagement.tsx
+│   │       ├── Sites.tsx
 │   │       └── Settings.tsx
 │   └── package.json
 └── README.md
@@ -70,23 +67,11 @@ npm start
 
 ## 🔐 Authentication
 
-The application supports multiple authentication methods:
-- **Username/Password** — Traditional login with bcrypt password hashing
-- **Google OAuth** — Google sign-in integration
+The application uses static admin credentials for authentication:
 
-**Default Master Admin:**
-- Email: `patilparth127@gmail.com`
-- Password: Set during first login or via backend
-
----
-
-## 🏢 Multi-Company Architecture
-
-- **Company Management** — Create and manage multiple companies
-- **Company Codes** — Unique codes for user registration
-- **User Roles** — Admin, User, Viewer with different permissions
-- **Subscription Plans** — Free, Basic, Pro, Enterprise tiers
-- **Product Licensing** — Enable/disable Email and WhatsApp modules per subscription
+**Default Admin Credentials:**
+- Email: `admin@gmail.com`
+- Password: `admin`
 
 ---
 
@@ -125,19 +110,31 @@ Upload an `.xlsx` or `.xls` file with these columns (case-insensitive):
 
 ## 💬 WhatsApp Integration
 
-The application supports WhatsApp messaging through:
-- **WhatsApp Web.js** — For automated messaging via QR code scanning
-- **WhatsApp Cloud API** — For production use with official Meta API
+The application uses **WhatsApp Web.js** for automated messaging via QR code scanning.
 
-Configure WhatsApp Cloud API in backend `.env`:
-```env
-WHATSAPP_ACCESS_TOKEN=your_access_token
-WHATSAPP_PHONE_NUMBER_ID=your_phone_number_id
-WHATSAPP_WABA_ID=your_waba_id
-WHATSAPP_GRAPH_API_VERSION=v20.0
-WHATSAPP_WEBHOOK_VERIFY_TOKEN=your_verify_token
-WHATSAPP_WEBHOOK_URL=your_webhook_url
-```
+**Features:**
+- QR code scanning directly in the web interface
+- Automatic connection status monitoring
+- Logout functionality with QR code regeneration
+- Reply button simulation for interactive messaging
+- Configurable delays between messages to avoid rate limiting
+
+**WhatsApp Connection:**
+1. Navigate to WhatsApp Portal
+2. Scan the QR code displayed in the browser
+3. Wait for connection confirmation
+4. Start sending messages
+
+---
+
+## 🏢 Site Management
+
+Organize contacts by physical locations or branches:
+
+- **Site CRUD** — Create, read, update, delete sites
+- **Site Filtering** — Filter contacts by site in campaigns
+- **Site Details** — Name, code, address, city, state, country, phone
+- **Unique Codes** — Each site has a unique code for identification
 
 ---
 
@@ -147,19 +144,25 @@ WHATSAPP_WEBHOOK_URL=your_webhook_url
 | Method | Endpoint               | Description              |
 |--------|------------------------|--------------------------|
 | POST   | `/api/auth/login`      | User login               |
-| POST   | `/api/auth/google`     | Google OAuth login       |
-| GET    | `/api/auth/me`         | Get current user         |
 | POST   | `/api/auth/logout`     | Logout                   |
 
 ### Contacts
 | Method | Endpoint               | Description              |
 |--------|------------------------|--------------------------|
-| GET    | `/api/contacts`        | Get all contacts         |
+| GET    | `/api/contacts`        | Get all contacts (supports siteId filter) |
 | POST   | `/api/contacts`        | Create contact           |
 | DELETE | `/api/contacts/:id`    | Delete contact           |
 | DELETE | `/api/contacts`        | Delete all contacts      |
 | POST   | `/api/upload-excel`    | Upload Excel file        |
 | PATCH  | `/api/contacts/:id/status` | Update contact status |
+
+### Sites
+| Method | Endpoint               | Description              |
+|--------|------------------------|--------------------------|
+| GET    | `/api/sites`           | Get all sites            |
+| POST   | `/api/sites`           | Create site              |
+| PUT    | `/api/sites/:id`       | Update site              |
+| DELETE | `/api/sites/:id`       | Delete site              |
 
 ### Email
 | Method | Endpoint                    | Description              |
@@ -171,55 +174,25 @@ WHATSAPP_WEBHOOK_URL=your_webhook_url
 ### WhatsApp
 | Method | Endpoint                       | Description              |
 |--------|--------------------------------|--------------------------|
+| GET    | `/api/whatsapp-status`         | Get WhatsApp connection status and QR code |
+| POST   | `/api/whatsapp-reset`          | Reset WhatsApp client     |
+| POST   | `/api/whatsapp-logout`         | Logout and regenerate QR code |
 | GET    | `/api/whatsapp-campaigns`      | Get WA campaigns         |
 | POST   | `/api/whatsapp-campaigns/send` | Send WA campaign         |
 | GET    | `/api/whatsapp-logs`           | Get WA logs              |
-| POST   | `/api/whatsapp-cloud/send-message` | Cloud API send     |
-
-### Companies
-| Method | Endpoint                              | Description              |
-|--------|---------------------------------------|--------------------------|
-| GET    | `/api/companies`                      | Get all companies        |
-| GET    | `/api/companies/:id`                  | Get company details      |
-| POST   | `/api/companies`                      | Create company           |
-| PUT    | `/api/companies/:id`                  | Update company           |
-| DELETE | `/api/companies/:id`                  | Delete company           |
-| PUT    | `/api/companies/:id/toggle-service`   | Toggle service           |
-| GET    | `/api/companies/:id/services`         | Get company services     |
-
-### Subscriptions
-| Method | Endpoint                              | Description              |
-|--------|---------------------------------------|--------------------------|
-| GET    | `/api/subscriptions`                   | Get all subscriptions    |
-| GET    | `/api/subscriptions/:id`              | Get subscription         |
-| GET    | `/api/companies/:id/subscription`      | Get company subscription |
-| POST   | `/api/subscriptions`                   | Create subscription      |
-| PUT    | `/api/subscriptions/:id`              | Update subscription      |
-| DELETE | `/api/subscriptions/:id`              | Delete subscription      |
-
-### Users
-| Method | Endpoint               | Description              |
-|--------|------------------------|--------------------------|
-| GET    | `/api/users`           | Get all users (admin)    |
-| POST   | `/api/users`           | Create user (admin)      |
-| PUT    | `/api/users/:id`       | Update user (admin)      |
-| DELETE | `/api/users/:id`       | Delete user (admin)      |
 
 ### Settings
 | Method | Endpoint                       | Description              |
 |--------|--------------------------------|--------------------------|
 | GET    | `/api/settings`                | Get settings              |
 | PUT    | `/api/settings`                | Update settings           |
-| PUT    | `/api/settings/delay/:type`    | Update delay settings     |
+| PUT    | `/api/settings/delay/:type`    | Update delay settings (whatsapp/email) |
 
 ### Other
 | Method | Endpoint               | Description              |
 |--------|------------------------|--------------------------|
+| GET    | `/api/health`           | Health check             |
 | GET    | `/api/upload-sessions`   | Get upload history       |
-| GET    | `/api/notifications`      | Get notifications (admin) |
-| PUT    | `/api/notifications/:id/read` | Mark as read       |
-| PUT    | `/api/notifications/read-all` | Mark all read      |
-| DELETE | `/api/notifications/:id`    | Delete notification       |
 
 ---
 
@@ -229,24 +202,33 @@ WHATSAPP_WEBHOOK_URL=your_webhook_url
 - ✅ **Multi-Portal** — Separate Email and WhatsApp messaging sections
 - ✅ **Excel Import** — Drag & drop or click to upload `.xlsx`/`.xls`
 - ✅ **Contact Management** — Add, search, delete contacts with full details
+- ✅ **Site Organization** — Organize contacts by physical locations
 - ✅ **Send Tracking** — Track how many times each contact was emailed/messaged
 - ✅ **Campaign History** — Full logs per campaign with status per recipient
-- ✅ **Personalization** — Use `{name}`, `{email}`, `{phone}` in messages/emails
+- ✅ **Personalization** — Use `{name}` in messages/emails
+- ✅ **Reply Buttons** — Simulated reply options for WhatsApp messages
+- ✅ **Delay Settings** — Configurable delays between messages to avoid rate limiting
 
-### SaaS Features
-- ✅ **Multi-Company** — Support for multiple companies with isolated data
-- ✅ **User Management** — Role-based access control (Admin, User, Viewer)
-- ✅ **Subscription Plans** — Free, Basic, Pro, Enterprise tiers
-- ✅ **Product Licensing** — Enable/disable Email and WhatsApp modules
-- ✅ **Usage Tracking** — Monitor message usage per subscription
-- ✅ **Admin Dashboard** — Overview of all companies and subscriptions
+### WhatsApp Features
+- ✅ **QR Code Scanning** — Scan QR code directly in web interface
+- ✅ **Connection Status** — Real-time WhatsApp connection monitoring
+- ✅ **Logout Functionality** — Logout and regenerate QR code for reconnection
+- ✅ **Reply Options** — Add interactive reply buttons to messages
+- ✅ **Site Filtering** — Filter contacts by site for targeted campaigns
+
+### Email Features
+- ✅ **SMTP Configuration** — Custom SMTP settings for email sending
+- ✅ **Gmail Support** — Pre-configured Gmail SMTP settings
+- ✅ **Site Filtering** — Filter contacts by site for targeted campaigns
+- ✅ **Delay Configuration** — Configurable delays between emails
 
 ### UI/UX
 - ✅ **Clean Theme** — Professional, modern white theme
 - ✅ **Responsive** — Works on mobile/tablet/desktop
 - ✅ **TypeScript** — Full type safety with Enums & Interfaces
-- ✅ **JSON Server DB** — All data persisted in `db.json`
-- ✅ **Delay Settings** — Configurable delays between messages to avoid rate limiting
+- ✅ **JSON Database** — All data persisted in `db.json`
+- ✅ **Toast Notifications** — Real-time feedback for actions
+- ✅ **Dashboard** — Overview of contacts and campaigns
 
 ---
 
@@ -255,34 +237,153 @@ WHATSAPP_WEBHOOK_URL=your_webhook_url
 | Layer     | Tech                              |
 |-----------|-----------------------------------|
 | Backend   | Node.js, Express, Multer          |
-| Auth      | JWT, bcryptjs, Google OAuth       |
 | Email     | Nodemailer                        |
-| WhatsApp  | WhatsApp Web.js, Cloud API        |
-| Database  | JSON Server (db.json)             |
+| WhatsApp  | WhatsApp Web.js, qrcode          |
+| Database  | JSON (db.json)                    |
 | Excel     | SheetJS (xlsx)                    |
 | Frontend  | React 18, TypeScript              |
 | Styling   | Pure CSS (no framework)           |
 | Icons     | Lucide React                      |
 | Toasts    | React Hot Toast                   |
+| HTTP      | Axios                             |
 
 ---
 
-## 📝 Environment Variables
+## 📝 Database Schema
 
-Create a `.env` file in the backend directory:
+The application uses a JSON database (`db.json`) with the following structure:
 
-```env
-# JWT Configuration
-JWT_SECRET=your-super-secret-jwt-key-change-in-production
-JWT_EXPIRES_IN=7d
-
-# WhatsApp Cloud API (optional, for production)
-WHATSAPP_ACCESS_TOKEN=
-WHATSAPP_PHONE_NUMBER_ID=
-WHATSAPP_WABA_ID=
-WHATSAPP_GRAPH_API_VERSION=v20.0
-WHATSAPP_WEBHOOK_VERIFY_TOKEN=
-WHATSAPP_WEBHOOK_URL=
+```json
+{
+  "contacts": [
+    {
+      "id": "uuid",
+      "name": "John Doe",
+      "email": "john@example.com",
+      "phone": "9876543210",
+      "gender": "male",
+      "status": "active",
+      "siteId": "uuid",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "emailSentCount": 0,
+      "whatsappSentCount": 0,
+      "lastEmailSentAt": null,
+      "lastWhatsappSentAt": null
+    }
+  ],
+  "sites": [
+    {
+      "id": "uuid",
+      "name": "Main Office",
+      "code": "MAIN",
+      "address": "123 Main St",
+      "city": "Mumbai",
+      "state": "Maharashtra",
+      "country": "India",
+      "phone": "9876543210",
+      "createdAt": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "email_campaigns": [
+    {
+      "id": "uuid",
+      "subject": "Campaign Subject",
+      "body": "Email body",
+      "fromEmail": "sender@example.com",
+      "smtpHost": "smtp.gmail.com",
+      "smtpPort": 587,
+      "totalTargets": 100,
+      "sentCount": 95,
+      "failedCount": 5,
+      "status": "sent",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "completedAt": "2024-01-01T00:05:00.000Z",
+      "logs": []
+    }
+  ],
+  "email_logs": [
+    {
+      "id": "uuid",
+      "campaignId": "uuid",
+      "contactId": "uuid",
+      "contactName": "John Doe",
+      "contactEmail": "john@example.com",
+      "status": "sent",
+      "sentAt": "2024-01-01T00:01:00.000Z",
+      "error": null
+    }
+  ],
+  "whatsapp_campaigns": [
+    {
+      "id": "uuid",
+      "message": "WhatsApp message",
+      "totalTargets": 100,
+      "sentCount": 95,
+      "failedCount": 5,
+      "status": "sent",
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "completedAt": "2024-01-01T00:10:00.000Z",
+      "logs": [],
+      "hasReplyButtons": false,
+      "replyOptions": []
+    }
+  ],
+  "whatsapp_logs": [
+    {
+      "id": "uuid",
+      "campaignId": "uuid",
+      "contactId": "uuid",
+      "contactName": "John Doe",
+      "contactPhone": "9876543210",
+      "message": "WhatsApp message",
+      "status": "sent",
+      "sentAt": "2024-01-01T00:01:00.000Z",
+      "error": null
+    }
+  ],
+  "settings": [
+    {
+      "id": "uuid",
+      "whatsappDelay": {
+        "id": "uuid",
+        "type": "whatsapp",
+        "delayMs": 2000,
+        "randomDelayMin": 1000,
+        "randomDelayMax": 3000,
+        "batchSize": 10,
+        "enabled": false,
+        "updatedAt": "2024-01-01T00:00:00.000Z"
+      },
+      "emailDelay": {
+        "id": "uuid",
+        "type": "email",
+        "delayMs": 1000,
+        "randomDelayMin": 500,
+        "randomDelayMax": 2000,
+        "batchSize": 50,
+        "enabled": false,
+        "updatedAt": "2024-01-01T00:00:00.000Z"
+      },
+      "updatedAt": "2024-01-01T00:00:00.000Z"
+    }
+  ],
+  "upload_sessions": [
+    {
+      "id": "uuid",
+      "fileName": "contacts.xlsx",
+      "totalRows": 100,
+      "importedCount": 95,
+      "errorCount": 5,
+      "errors": [
+        {
+          "row": 10,
+          "reason": "Missing Name or Email"
+        }
+      ],
+      "uploadedAt": "2024-01-01T00:00:00.000Z"
+    }
+  ]
+}
 ```
 
 ---
@@ -296,5 +397,6 @@ MIT — Free to use and modify.
 ## 🔗 Useful Links
 
 - **Google App Passwords**: https://myaccount.google.com/apppasswords
-- **WhatsApp Business API**: https://business.whatsapp.com/
-- **Twilio WhatsApp**: https://www.twilio.com/whatsapp
+- **WhatsApp Web.js**: https://github.com/pedroslopez/whatsapp-web.js
+- **Nodemailer**: https://nodemailer.com/
+- **SheetJS**: https://sheetjs.com/

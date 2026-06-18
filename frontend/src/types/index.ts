@@ -173,3 +173,76 @@ export interface AppSettings {
   emailDelay: DelaySettings;
   updatedAt: string;
 }
+
+// ─── WhatsApp Interactive Templates ────────────────────────────────
+export type TemplateType = "poll" | "list" | "cta";
+
+export interface PollOption {
+  id: string;
+  text: string;
+}
+
+export interface ListSection {
+  title: string;
+  rows: {
+    id: string;
+    title: string;
+    description?: string;
+  }[];
+}
+
+export interface CTA {
+  text: string;
+  url: string;
+}
+
+export interface WhatsAppTemplate {
+  id: string;
+  type: TemplateType;
+  name: string;
+  header?: string;
+  body: string;
+  footer?: string;
+  pollOptions?: PollOption[];
+  listSections?: ListSection[];
+  buttonText?: string;
+  cta?: CTA;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface SendInteractivePayload {
+  templateId: string;
+  contactIds: string[];
+  siteId?: string;
+}
+
+export interface InteractiveLog {
+  id: string;
+  campaignId: string;
+  contactId: string;
+  contactName: string;
+  contactPhone: string;
+  status: SendStatus;
+  sentAt: string | null;
+  error: string | null;
+}
+
+export interface InteractiveResponse {
+  id: string;
+  campaignId: string;
+  contactId: string;
+  contactName: string;
+  contactPhone: string;
+  selectedOption: string;
+  responseAt: string;
+}
+
+export interface CampaignAnalytics {
+  campaignId: string;
+  totalSent: number;
+  delivered: number;
+  failed: number;
+  responseCount: number;
+  engagementRate: number;
+}

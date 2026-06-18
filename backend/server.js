@@ -6,8 +6,12 @@ const nodemailer = require("nodemailer");
 const { v4: uuidv4 } = require("uuid");
 const fs = require("fs");
 const path = require("path");
-const { Client, LocalAuth, List } = require("whatsapp-web.js");
+const { Buttons, List, Poll } = require("whatsapp-web.js");
 const qrcode = require("qrcode");
+
+const { readDB, writeDB } = require("./utils/db");
+const { waClient, getStatus, isReady } = require("./utils/waClient");
+const whatsappInteractiveRoutes = require("./routes/whatsappInteractiveRoutes");
 
 const app = express();
 const PORT = 3200;
@@ -21,6 +25,9 @@ const ADMIN_PASSWORD = "admin";
 app.use(cors());
 app.use(express.json());
 
+// Register WhatsApp Interactive Routes
+app.use("/api/whatsapp", whatsappInteractiveRoutes);
+
 // ─── Multer (memory storage for Excel) ──────────────────────
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -33,14 +40,7 @@ const MessageType = { INTERACTIVE_TEMPLATE: "interactive_template", MEDIA_MESSAG
 const MediaType = { IMAGE: "image", VIDEO: "video", DOCUMENT: "document", AUDIO: "audio" };
 
 // ─── DB Helpers ───────────────────────────────────────────────
-function readDB() {
-  const raw = fs.readFileSync(DB_PATH, "utf8");
-  return JSON.parse(raw);
-}
-
-function writeDB(data) {
-  fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
-}
+// Imported from ./utils/db.js
 
 // ─── Safe DB init ─────────────────────────────────────────────
 function ensureDB() {
@@ -52,6 +52,11 @@ function ensureDB() {
       email_logs: [],
       whatsapp_campaigns: [],
       whatsapp_logs: [],
+      whatsapp_templates: [],
+      interactive_campaigns: [],
+      interactive_logs: [],
+      interactive_responses: [],
+      campaign_analytics: [],
       settings: [],
       sites: [],
     };
@@ -64,6 +69,11 @@ function ensureDB() {
     db.email_logs = db.email_logs || [];
     db.whatsapp_campaigns = db.whatsapp_campaigns || [];
     db.whatsapp_logs = db.whatsapp_logs || [];
+    db.whatsapp_templates = db.whatsapp_templates || [];
+    db.interactive_campaigns = db.interactive_campaigns || [];
+    db.interactive_logs = db.interactive_logs || [];
+    db.interactive_responses = db.interactive_responses || [];
+    db.campaign_analytics = db.campaign_analytics || [];
     db.settings = db.settings || [];
     db.sites = db.sites || [];
     writeDB(db);
@@ -186,96 +196,8 @@ app.put("/api/settings/delay/:type", (req, res) => {
 });
 
 // ─── WhatsApp Setup ───────────────────────────────────────────
-let waReady = false;
-let waLastQr = null;
-let waLastQrDataUrl = null;
-let waStatus = "INITIALIZING";
-let waLastError = null;
-
-const waClient = new Client({
-  authStrategy: new LocalAuth({
-    clientId: "bulk-messenger",
-  }),
-  takeoverOnConflict: true,
-  takeoverTimeoutMs: 10000,
-  authTimeoutMs: 60000,
-  qrMaxRetries: 5,
-  puppeteer: {
-    headless: true,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
-  },
-});
-
-waClient.on("qr", async (qr) => {
-  waReady = false;
-  waStatus = "QR_RECEIVED";
-  waLastQr = qr;
-  console.log("📲 Scan WhatsApp QR");
-  // Generate QR code as data URL for web display
-  try {
-    waLastQrDataUrl = await qrcode.toDataURL(qr);
-  } catch (error) {
-    console.error("Failed to generate QR code data URL:", error);
-  }
-});
-
-waClient.on("authenticated", () => {
-  waStatus = "AUTHENTICATED";
-  waLastError = null;
-  console.log("🔐 WhatsApp authenticated");
-});
-
-waClient.on("ready", async () => {
-  waReady = true;
-  waStatus = "READY";
-  waLastError = null;
-  console.log("✅ WhatsApp Ready!");
-  try {
-    const state = await waClient.getState();
-    console.log("📶 WhatsApp state:", state);
-  } catch (err) {
-    console.log("⚠️ Could not read WA state:", err.message);
-  }
-});
-
-waClient.on("auth_failure", (msg) => {
-  waReady = false;
-  waStatus = "AUTH_FAILURE";
-  waLastError = msg || "Authentication failed";
-  console.error("❌ WhatsApp auth failure:", msg);
-});
-
-waClient.on("disconnected", (reason) => {
-  waReady = false;
-  waStatus = "DISCONNECTED";
-  waLastError = String(reason || "Disconnected");
-  console.error("❌ WhatsApp disconnected:", reason);
-});
-
-waClient.on("change_state", (state) => {
-  waStatus = state || waStatus;
-  console.log("🔄 WhatsApp state changed:", state);
-});
-
-waClient.initialize().catch((err) => {
-  waReady = false;
-  waStatus = "INIT_FAILED";
-  waLastError = err.message;
-  console.error("❌ WhatsApp initialize failed:", err.message);
-});
-
-// ─── Helpers ──────────────────────────────────────────────────
-const delay = (ms) => new Promise((res) => setTimeout(res, ms));
-
-function normalizeIndianNumber(number) {
-  let n = String(number || "").replace(/\D/g, "");
-
-  if (!n) return "";
-  if (n.startsWith("0")) n = n.slice(1);
-  if (n.length === 10) n = `91${n}`;
-
-  return n;
-}
+// Most of the WhatsApp setup logic is now in ./utils/waClient.js
+// We just need the runtime state helper here for existing endpoints
 
 async function getWhatsAppRuntimeState() {
   try {
@@ -286,7 +208,7 @@ async function getWhatsAppRuntimeState() {
 }
 
 async function sendWhatsAppMessage(number, message) {
-  if (!waReady) {
+  if (!isReady()) {
     throw new Error("WhatsApp client not ready");
   }
 
@@ -771,54 +693,30 @@ app.get("/api/email-logs", (req, res) => {
 
 app.get("/api/whatsapp-status", async (req, res) => {
   const state = await getWhatsAppRuntimeState();
+  const status = getStatus();
 
   res.json({
-    waReady,
-    waStatus,
+    ...status,
     state,
-    hasQr: !!waLastQr,
-    qrDataUrl: waLastQrDataUrl,
-    lastError: waLastError,
   });
 });
 
 app.post("/api/whatsapp-reset", async (req, res) => {
   try {
-    waReady = false;
-    waStatus = "RESETTING";
-
     await waClient.destroy();
-
-    waStatus = "REINITIALIZING";
     waClient.initialize();
-
     res.json({ success: true, message: "WhatsApp client reset triggered" });
   } catch (err) {
-    waStatus = "RESET_FAILED";
-    waLastError = err.message;
     res.status(500).json({ error: err.message });
   }
 });
 
 app.post("/api/whatsapp-logout", async (req, res) => {
   try {
-    waReady = false;
-    waStatus = "LOGGING_OUT";
-    waLastQr = null;
-    waLastQrDataUrl = null;
-
     await waClient.logout();
-
-    waStatus = "LOGGED_OUT";
-    
-    // Reinitialize the client to generate a new QR code
-    waStatus = "REINITIALIZING";
     waClient.initialize();
-
     res.json({ success: true, message: "WhatsApp logged out successfully" });
   } catch (err) {
-    waStatus = "LOGOUT_FAILED";
-    waLastError = err.message;
     res.status(500).json({ error: err.message });
   }
 });
@@ -842,13 +740,15 @@ app.post("/api/whatsapp-campaigns/send", async (req, res) => {
   }
 
   const state = await getWhatsAppRuntimeState();
-  if (!waReady || !state || ["OPENING", "PAIRING", "TIMEOUT", "CONFLICT", "UNPAIRED", "UNPAIRED_IDLE"].includes(state)) {
+  const status = getStatus();
+
+  if (!status.waReady || !state || ["OPENING", "PAIRING", "TIMEOUT", "CONFLICT", "UNPAIRED", "UNPAIRED_IDLE"].includes(state)) {
     return res.status(400).json({
       error: "WhatsApp not ready. Please connect WhatsApp first.",
-      waReady,
-      waStatus,
+      waReady: status.waReady,
+      waStatus: status.waStatus,
       state,
-      lastError: waLastError,
+      lastError: status.lastError,
     });
   }
 
@@ -896,7 +796,14 @@ app.post("/api/whatsapp-campaigns/send", async (req, res) => {
 
   for (const contact of targets) {
     try {
-      const finalMsg = message.replace(/\{name\}/gi, contact.name);
+      const body = message.replace(/\{name\}/gi, contact.name);
+      let finalMsg = body;
+
+      if (hasReplyButtons && replyOptions && replyOptions.length > 0) {
+        // Use Poll as an alternative to deprecated Buttons
+        finalMsg = new Poll(body, replyOptions.slice(0, 12), { allowMultipleAnswers: false });
+      }
+
       await sendWhatsAppMessage(contact.phone, finalMsg);
       
       // Apply delay based on settings

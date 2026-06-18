@@ -12,6 +12,11 @@ import {
   DelaySettings,
   ContactStatus,
   Site,
+  WhatsAppTemplate,
+  SendInteractivePayload,
+  InteractiveLog,
+  InteractiveResponse,
+  CampaignAnalytics,
 } from "../types";
 
 const BASE = "/api";
@@ -103,6 +108,31 @@ export const getWhatsAppStatus = () =>
 
 export const logoutWhatsApp = () =>
   api.post("/whatsapp-logout").then((r) => r.data);
+
+// ─── WhatsApp Interactive ─────────────────────────────────────
+export const getWhatsAppTemplates = () =>
+  api.get<WhatsAppTemplate[]>("/whatsapp/templates").then((r) => r.data);
+
+export const createWhatsAppTemplate = (data: Partial<WhatsAppTemplate>) =>
+  api.post<WhatsAppTemplate>("/whatsapp/templates", data).then((r) => r.data);
+
+export const updateWhatsAppTemplate = (id: string, data: Partial<WhatsAppTemplate>) =>
+  api.put<WhatsAppTemplate>(`/whatsapp/templates/${id}`, data).then((r) => r.data);
+
+export const deleteWhatsAppTemplate = (id: string) =>
+  api.delete(`/whatsapp/templates/${id}`).then((r) => r.data);
+
+export const sendInteractiveCampaign = (payload: SendInteractivePayload) =>
+  api.post("/whatsapp/send-interactive", payload).then((r) => r.data);
+
+export const getInteractiveLogs = () =>
+  api.get<InteractiveLog[]>("/whatsapp/interactive-logs").then((r) => r.data);
+
+export const getInteractiveResponses = () =>
+  api.get<InteractiveResponse[]>("/whatsapp/responses").then((r) => r.data);
+
+export const getCampaignAnalytics = (campaignId: string) =>
+  api.get<CampaignAnalytics>(`/whatsapp/analytics/${campaignId}`).then((r) => r.data);
 
 
 

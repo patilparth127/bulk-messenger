@@ -3,6 +3,10 @@ import { Send, ChevronDown, ChevronUp, MessageCircle, Building2, RefreshCw, QrCo
 import toast from "react-hot-toast";
 import { Contact, WhatsAppCampaign, SendStatus, Site } from "../types";
 import { sendWhatsAppCampaign, getSites, getWhatsAppStatus, logoutWhatsApp } from "../utils/api";
+import WhatsAppTemplateBuilder from "./WhatsAppTemplateBuilder";
+import InteractiveCampaign from "./InteractiveCampaign";
+import ResponseLogs from "./ResponseLogs";
+import CampaignAnalytics from "./CampaignAnalytics";
 import { formatDate, formatPhone } from "../utils/helpers";
 import TableControls, { Column, SortConfig, FilterConfig, PaginationConfig } from "./TableControls";
 
@@ -13,7 +17,7 @@ interface Props {
 }
 
 export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props) {
-  const [activeTab, setActiveTab] = useState<"compose" | "history">("compose");
+  const [activeTab, setActiveTab] = useState<"compose" | "history" | "interactive" | "templates" | "responses" | "analytics">("compose");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedCamp, setExpandedCamp] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -209,12 +213,8 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
     else setContactError("");
     if (!valid) return;
 
-    // Build final message with reply options if enabled
-    let finalMessage = message;
-    if (hasReplyButtons && replyOptions.length > 0) {
-      const replyText = replyOptions.map((opt, i) => `${i + 1}. ${opt}`).join("\n");
-      finalMessage = `${message}\n\nPlease reply with:\n${replyText}`;
-    }
+    // Build final message
+    const finalMessage = message;
 
     setSending(true);
     const tid = toast.loading(`Sending WhatsApp to ${selectedIds.size} contacts…`);
@@ -284,10 +284,38 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
         <button className={`tab ${activeTab === "compose" ? "active-wa" : ""}`} onClick={() => setActiveTab("compose")}>
           Compose Message
         </button>
+        <button className={`tab ${activeTab === "interactive" ? "active-wa" : ""}`} onClick={() => setActiveTab("interactive")}>
+          Interactive Campaign
+        </button>
+        <button className={`tab ${activeTab === "templates" ? "active-wa" : ""}`} onClick={() => setActiveTab("templates")}>
+          Template Builder
+        </button>
+        <button className={`tab ${activeTab === "responses" ? "active-wa" : ""}`} onClick={() => setActiveTab("responses")}>
+          Responses
+        </button>
+        <button className={`tab ${activeTab === "analytics" ? "active-wa" : ""}`} onClick={() => setActiveTab("analytics")}>
+          Analytics
+        </button>
         <button className={`tab ${activeTab === "history" ? "active-wa" : ""}`} onClick={() => setActiveTab("history")}>
           Campaign History {campaigns.length > 0 && `(${campaigns.length})`}
         </button>
       </div>
+
+      {activeTab === "interactive" && (
+        <InteractiveCampaign contacts={contacts} onRefresh={onRefresh} />
+      )}
+
+      {activeTab === "templates" && (
+        <WhatsAppTemplateBuilder />
+      )}
+
+      {activeTab === "responses" && (
+        <ResponseLogs />
+      )}
+
+      {activeTab === "analytics" && (
+        <CampaignAnalytics />
+      )}
 
       {activeTab === "compose" && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 20 }}>
