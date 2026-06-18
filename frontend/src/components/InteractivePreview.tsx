@@ -61,6 +61,16 @@ export default function InteractivePreview({ template }: Props) {
               </div>
             </div>
           )}
+
+          {template.type === "quick_reply" && template.quickReplyOptions && template.quickReplyOptions.length > 0 && (
+            <div className="wa-quick-reply-container">
+              {template.quickReplyOptions.map((btn, i) => (
+                <div key={i} className="wa-quick-reply-button">
+                  {btn.text || `Button ${i + 1}`}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <div className="wa-message-time">12:30 PM</div>
       </div>

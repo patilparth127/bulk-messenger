@@ -112,6 +112,19 @@ class WhatsappInteractiveService {
           // For now, let's try a regular button if URL buttons aren't supported
           messageObject = `${body}\n\n${template.cta.text}: ${template.cta.url}`;
           if (template.footer) messageObject += `\n\n${template.footer}`;
+        } else if (template.type === "quick_reply") {
+          // Use Buttons class for quick reply messages
+          const buttonBody = body;
+          const buttons = template.quickReplyOptions.slice(0, 3).map((b, index) => ({
+            body: b.text,
+            id: b.id || `btn_${index}`
+          }));
+
+          let buttonMessage = buttonBody;
+          if (template.header) buttonMessage = `${template.header}\n\n${buttonBody}`;
+          if (template.footer) buttonMessage = `${buttonMessage}\n\n${template.footer}`;
+
+          messageObject = new Buttons(buttonMessage, buttons, template.header || "", template.footer || "");
         }
 
         await waClient.sendMessage(numberId._serialized, messageObject);
@@ -120,6 +133,7 @@ class WhatsappInteractiveService {
         logs.push({
           id: uuidv4(),
           campaignId: campaign.id,
+          templateId,
           contactId: contact.id,
           contactName: contact.name,
           contactPhone: contact.phone,
@@ -146,6 +160,7 @@ class WhatsappInteractiveService {
         logs.push({
           id: uuidv4(),
           campaignId: campaign.id,
+          templateId,
           contactId: contact.id,
           contactName: contact.name,
           contactPhone: contact.phone,
@@ -189,7 +204,21 @@ class WhatsappInteractiveService {
     const selectedOption = msg.type === "buttons_response" ? msg.selectedButtonId : msg.selectedRowId;
     const from = msg.from.split("@")[0];
 
-    await this._recordResponse(from, selectedOption);
+    // For button responses, try to get the button text for better readability
+    let displayOption = selectedOption;
+    if (msg.type === "buttons_response") {
+      const log = this._findLatestLogForNumber(from);
+      if (log && log.templateId) {
+        const db = readDB();
+        const template = db.whatsapp_templates.find((t) => t.id === log.templateId);
+        if (template && template.type === "quick_reply" && template.quickReplyOptions) {
+          const button = template.quickReplyOptions.find((b) => b.id === selectedOption);
+          if (button) displayOption = button.text;
+        }
+      }
+    }
+
+    await this._recordResponse(from, displayOption);
   }
 
   async handleVoteUpdate(vote) {
@@ -199,7 +228,15 @@ class WhatsappInteractiveService {
     const selectedOption = vote.selectedOptions[0].name;
     const from = vote.voter.split("@")[0];
 
-    await this._recordResponse(from, selectedOption);
+    await this._recordResponse(from, displayOption);
+  }
+
+  _findLatestLogForNumber(phoneNumber) {
+    const db = readDB();
+    const logs = db.interactive_logs || [];
+    return logs
+      .filter((l) => l.contactPhone && this._normalizeNumber(l.contactPhone) === phoneNumber)
+      .sort((a, b) => new Date(b.sentAt) - new Date(a.sentAt))[0];
   }
 
   async _recordResponse(from, selectedOption) {

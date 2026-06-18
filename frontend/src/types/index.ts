@@ -175,9 +175,14 @@ export interface AppSettings {
 }
 
 // ─── WhatsApp Interactive Templates ────────────────────────────────
-export type TemplateType = "poll" | "list" | "cta";
+export type TemplateType = "poll" | "list" | "cta" | "quick_reply";
 
 export interface PollOption {
+  id: string;
+  text: string;
+}
+
+export interface QuickReplyButton {
   id: string;
   text: string;
 }
@@ -207,6 +212,7 @@ export interface WhatsAppTemplate {
   listSections?: ListSection[];
   buttonText?: string;
   cta?: CTA;
+  quickReplyOptions?: QuickReplyButton[];
   createdAt: string;
   updatedAt?: string;
 }

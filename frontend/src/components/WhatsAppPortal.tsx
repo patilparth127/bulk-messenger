@@ -451,52 +451,6 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
                 {msgError && <span className="form-error">{msgError}</span>}
               </div>
 
-              {/* Reply Buttons Simulation */}
-              <div style={{
-                background: "var(--bg)",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius)",
-                padding: "16px",
-                marginBottom: 16,
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                  <input
-                    type="checkbox"
-                    id="reply-buttons"
-                    checked={hasReplyButtons}
-                    onChange={(e) => setHasReplyButtons(e.target.checked)}
-                    style={{ width: 18, height: 18 }}
-                  />
-                  <label htmlFor="reply-buttons" style={{ fontWeight: 600, fontSize: "0.9rem", cursor: "pointer" }}>
-                    Enable Reply Buttons (Simulated)
-                  </label>
-                </div>
-                <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: 12 }}>
-                  Adds reply options to your message. Recipients can reply with the numbered options.
-                </p>
-                {hasReplyButtons && (
-                  <div>
-                    <label className="form-label" style={{ fontSize: "0.85rem" }}>
-                      Reply Options (comma-separated)
-                    </label>
-                    <input
-                      className="form-input"
-                      placeholder="Interested, Not Interested"
-                      value={customReplyOptions}
-                      onChange={(e) => {
-                        setCustomReplyOptions(e.target.value);
-                        const opts = e.target.value.split(",").map(s => s.trim()).filter(s => s);
-                        setReplyOptions(opts.length > 0 ? opts : ["Interested", "Not Interested"]);
-                      }}
-                      style={{ fontSize: "0.85rem" }}
-                    />
-                    <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 4 }}>
-                      Example: "Interested, Not Interested, Maybe"
-                    </div>
-                  </div>
-                )}
-              </div>
-
               {/* Preview */}
               {message && (
                 <div>

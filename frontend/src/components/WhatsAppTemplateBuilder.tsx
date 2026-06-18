@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Save, Layout, List as ListIcon, Link as LinkIcon, MessageSquare, BarChart3 } from "lucide-react";
+import { Plus, Trash2, Save, Layout, List as ListIcon, Link as LinkIcon, MessageSquare, BarChart3, CheckCircle } from "lucide-react";
 import toast from "react-hot-toast";
-import { WhatsAppTemplate, TemplateType, PollOption, ListSection, CTA } from "../types";
+import { WhatsAppTemplate, TemplateType, PollOption, ListSection, CTA, QuickReplyButton } from "../types";
 import { getWhatsAppTemplates, createWhatsAppTemplate, updateWhatsAppTemplate, deleteWhatsAppTemplate } from "../utils/api";
 import InteractivePreview from "./InteractivePreview";
 
@@ -19,7 +19,8 @@ export default function WhatsAppTemplateBuilder() {
     pollOptions: [{ id: "1", text: "" }],
     buttonText: "View Options",
     listSections: [{ title: "Options", rows: [{ id: "1", title: "", description: "" }] }],
-    cta: { text: "", url: "" }
+    cta: { text: "", url: "" },
+    quickReplyOptions: [{ id: "1", text: "YES" }, { id: "2", text: "NO" }]
   });
 
   const loadTemplates = async () => {
@@ -49,7 +50,8 @@ export default function WhatsAppTemplateBuilder() {
       pollOptions: [{ id: "1", text: "" }],
       buttonText: "View Options",
       listSections: [{ title: "Options", rows: [{ id: "1", title: "", description: "" }] }],
-      cta: { text: "", url: "" }
+      cta: { text: "", url: "" },
+      quickReplyOptions: [{ id: "1", text: "YES" }, { id: "2", text: "NO" }]
     });
   };
 
@@ -133,6 +135,29 @@ export default function WhatsAppTemplateBuilder() {
     const sections = [...(formData.listSections || [])];
     (sections[sectionIdx].rows[rowIdx] as any)[field] = value;
     setFormData({ ...formData, listSections: sections });
+  };
+
+  const addQuickReplyButton = () => {
+    if ((formData.quickReplyOptions?.length || 0) >= 3) {
+      toast.error("Maximum 3 quick reply buttons allowed");
+      return;
+    }
+    setFormData({
+      ...formData,
+      quickReplyOptions: [...(formData.quickReplyOptions || []), { id: Date.now().toString(), text: "" }]
+    });
+  };
+
+  const removeQuickReplyButton = (index: number) => {
+    const opts = [...(formData.quickReplyOptions || [])];
+    opts.splice(index, 1);
+    setFormData({ ...formData, quickReplyOptions: opts });
+  };
+
+  const updateQuickReplyButton = (index: number, text: string) => {
+    const opts = [...(formData.quickReplyOptions || [])];
+    opts[index].text = text;
+    setFormData({ ...formData, quickReplyOptions: opts });
   };
 
   return (
@@ -219,6 +244,14 @@ export default function WhatsAppTemplateBuilder() {
                 >
                   <LinkIcon size={14} style={{ marginRight: 4 }} />
                   CTA
+                </button>
+                <button
+                  className={`btn ${formData.type === 'quick_reply' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setFormData({ ...formData, type: 'quick_reply' })}
+                  style={{ fontSize: "0.85rem", padding: "6px 12px" }}
+                >
+                  <CheckCircle size={14} style={{ marginRight: 4 }} />
+                  Quick Reply
                 </button>
               </div>
             </div>
@@ -381,6 +414,36 @@ export default function WhatsAppTemplateBuilder() {
                       placeholder="URL (https://example.com)"
                     />
                   </div>
+                </div>
+              )}
+
+              {/* Quick Reply Specific Fields */}
+              {formData.type === "quick_reply" && (
+                <div className="form-group">
+                  <label>Quick Reply Buttons (Max 3)</label>
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginBottom: 12 }}>
+                    Add buttons for users to quickly respond (e.g., YES, NO)
+                  </div>
+                  {formData.quickReplyOptions?.map((btn, i) => (
+                    <div key={i} style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+                      <input
+                        type="text"
+                        className="form-input"
+                        value={btn.text}
+                        onChange={(e) => updateQuickReplyButton(i, e.target.value)}
+                        placeholder={`Button ${i + 1} (e.g., ${i === 0 ? 'YES' : i === 1 ? 'NO' : 'MAYBE'})`}
+                      />
+                      <button className="btn btn-danger" onClick={() => removeQuickReplyButton(i)} style={{ padding: "8px 12px" }}>
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  ))}
+                  {(!formData.quickReplyOptions || formData.quickReplyOptions.length < 3) && (
+                    <button className="btn btn-secondary" onClick={addQuickReplyButton} style={{ fontSize: "0.85rem" }}>
+                      <Plus size={14} style={{ marginRight: 4 }} />
+                      Add Button
+                    </button>
+                  )}
                 </div>
               )}
 
