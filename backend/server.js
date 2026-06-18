@@ -7,7 +7,7 @@ const { v4: uuidv4 } = require("uuid");
 const fs = require("fs");
 const path = require("path");
 const { Client, LocalAuth, List } = require("whatsapp-web.js");
-const qrcode = require("qrcode-terminal");
+const qrcode = require("qrcode");
 
 const app = express();
 const PORT = 3200;
@@ -53,6 +53,7 @@ function ensureDB() {
       whatsapp_campaigns: [],
       whatsapp_logs: [],
       settings: [],
+      sites: [],
     };
     writeDB(initialDB);
   } else {
@@ -64,6 +65,7 @@ function ensureDB() {
     db.whatsapp_campaigns = db.whatsapp_campaigns || [];
     db.whatsapp_logs = db.whatsapp_logs || [];
     db.settings = db.settings || [];
+    db.sites = db.sites || [];
     writeDB(db);
   }
 }
@@ -186,6 +188,7 @@ app.put("/api/settings/delay/:type", (req, res) => {
 // ─── WhatsApp Setup ───────────────────────────────────────────
 let waReady = false;
 let waLastQr = null;
+let waLastQrDataUrl = null;
 let waStatus = "INITIALIZING";
 let waLastError = null;
 
@@ -203,12 +206,17 @@ const waClient = new Client({
   },
 });
 
-waClient.on("qr", (qr) => {
+waClient.on("qr", async (qr) => {
   waReady = false;
   waStatus = "QR_RECEIVED";
   waLastQr = qr;
   console.log("📲 Scan WhatsApp QR");
-  qrcode.generate(qr, { small: true });
+  // Generate QR code as data URL for web display
+  try {
+    waLastQrDataUrl = await qrcode.toDataURL(qr);
+  } catch (error) {
+    console.error("Failed to generate QR code data URL:", error);
+  }
 });
 
 waClient.on("authenticated", () => {
@@ -296,18 +304,126 @@ async function sendWhatsAppMessage(number, message) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// SITES
+// ═══════════════════════════════════════════════════════════════
+
+// GET /api/sites
+app.get("/api/sites", (req, res) => {
+  const db = readDB();
+  res.json(db.sites);
+});
+
+// POST /api/sites
+app.post("/api/sites", (req, res) => {
+  const { name, code, address, city, state, country, phone } = req.body;
+
+  if (!name || !code) {
+    return res.status(400).json({ error: "Name and Code are required" });
+  }
+
+  const db = readDB();
+
+  // Check if code is unique
+  if (db.sites.some(s => s.code === code)) {
+    return res.status(400).json({ error: "Site code must be unique" });
+  }
+
+  const site = {
+    id: uuidv4(),
+    name: String(name).trim(),
+    code: String(code).trim().toUpperCase(),
+    address: address ? String(address).trim() : "",
+    city: city ? String(city).trim() : "",
+    state: state ? String(state).trim() : "",
+    country: country ? String(country).trim() : "",
+    phone: phone ? String(phone).trim() : "",
+    createdAt: new Date().toISOString(),
+  };
+
+  db.sites.push(site);
+  writeDB(db);
+
+  res.status(201).json(site);
+});
+
+// PUT /api/sites/:id
+app.put("/api/sites/:id", (req, res) => {
+  const { name, code, address, city, state, country, phone } = req.body;
+
+  if (!name || !code) {
+    return res.status(400).json({ error: "Name and Code are required" });
+  }
+
+  const db = readDB();
+  const idx = db.sites.findIndex((s) => s.id === req.params.id);
+
+  if (idx === -1) {
+    return res.status(404).json({ error: "Site not found" });
+  }
+
+  // Check if code is unique (excluding current site)
+  if (db.sites.some(s => s.code === code && s.id !== req.params.id)) {
+    return res.status(400).json({ error: "Site code must be unique" });
+  }
+
+  db.sites[idx] = {
+    ...db.sites[idx],
+    name: String(name).trim(),
+    code: String(code).trim().toUpperCase(),
+    address: address ? String(address).trim() : "",
+    city: city ? String(city).trim() : "",
+    state: state ? String(state).trim() : "",
+    country: country ? String(country).trim() : "",
+    phone: phone ? String(phone).trim() : "",
+  };
+
+  writeDB(db);
+  res.json(db.sites[idx]);
+});
+
+// DELETE /api/sites/:id
+app.delete("/api/sites/:id", (req, res) => {
+  const db = readDB();
+  const idx = db.sites.findIndex((s) => s.id === req.params.id);
+
+  if (idx === -1) {
+    return res.status(404).json({ error: "Site not found" });
+  }
+
+  // Check if site has contacts
+  const hasContacts = db.contacts.some(c => c.siteId === req.params.id);
+  if (hasContacts) {
+    return res.status(400).json({ error: "Cannot delete site with associated contacts" });
+  }
+
+  db.sites.splice(idx, 1);
+  writeDB(db);
+
+  res.json({ success: true });
+});
+
+// ═══════════════════════════════════════════════════════════════
 // CONTACTS
 // ═══════════════════════════════════════════════════════════════
 
 // GET /api/contacts
 app.get("/api/contacts", (req, res) => {
   const db = readDB();
-  res.json(db.contacts);
+  const { siteId } = req.query;
+  
+  let contacts = db.contacts;
+  
+  // Filter by siteId if provided
+  if (siteId && siteId !== "all") {
+    contacts = contacts.filter(c => c.siteId === siteId);
+  }
+  
+  res.json(contacts);
 });
 
 // POST /api/contacts (single)
 app.post("/api/contacts", (req, res) => {
-  const { name, email, phone, gender } = req.body;
+  const { name, email, phone, gender, siteId } = req.body;
 
   if (!name || !email) {
     return res.status(400).json({ error: "Name and Email are required" });
@@ -322,6 +438,7 @@ app.post("/api/contacts", (req, res) => {
     phone: phone ? String(phone).trim() : "",
     gender: gender || Gender.OTHER,
     status: ContactStatus.ACTIVE,
+    siteId: siteId || null,
     createdAt: new Date().toISOString(),
     emailSentCount: 0,
     whatsappSentCount: 0,
@@ -503,6 +620,7 @@ app.post("/api/email-campaigns/send", async (req, res) => {
     smtpHost,
     smtpPort,
     contactIds,
+    siteId,
   } = req.body;
 
   if (!subject || !body || !fromEmail || !fromPassword || !contactIds?.length) {
@@ -512,7 +630,12 @@ app.post("/api/email-campaigns/send", async (req, res) => {
   }
 
   const db = readDB();
-  const targets = db.contacts.filter((c) => contactIds.includes(c.id));
+  let targets = db.contacts.filter((c) => contactIds.includes(c.id));
+
+  // Filter by siteId if provided (and not "all")
+  if (siteId && siteId !== "all") {
+    targets = targets.filter(c => c.siteId === siteId);
+  }
 
   if (targets.length === 0) {
     return res.status(400).json({ error: "No valid contacts found" });
@@ -654,6 +777,7 @@ app.get("/api/whatsapp-status", async (req, res) => {
     waStatus,
     state,
     hasQr: !!waLastQr,
+    qrDataUrl: waLastQrDataUrl,
     lastError: waLastError,
   });
 });
@@ -676,6 +800,29 @@ app.post("/api/whatsapp-reset", async (req, res) => {
   }
 });
 
+app.post("/api/whatsapp-logout", async (req, res) => {
+  try {
+    waReady = false;
+    waStatus = "LOGGING_OUT";
+    waLastQr = null;
+    waLastQrDataUrl = null;
+
+    await waClient.logout();
+
+    waStatus = "LOGGED_OUT";
+    
+    // Reinitialize the client to generate a new QR code
+    waStatus = "REINITIALIZING";
+    waClient.initialize();
+
+    res.json({ success: true, message: "WhatsApp logged out successfully" });
+  } catch (err) {
+    waStatus = "LOGOUT_FAILED";
+    waLastError = err.message;
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════
 // WHATSAPP CAMPAIGNS
 // ═══════════════════════════════════════════════════════════════
@@ -688,7 +835,7 @@ app.get("/api/whatsapp-campaigns", (req, res) => {
 
 // POST /api/whatsapp-campaigns/send
 app.post("/api/whatsapp-campaigns/send", async (req, res) => {
-  const { message, contactIds, hasReplyButtons, replyOptions } = req.body;
+  const { message, contactIds, hasReplyButtons, replyOptions, siteId } = req.body;
 
   if (!message || !contactIds?.length) {
     return res.status(400).json({ error: "message and contactIds are required" });
@@ -706,7 +853,12 @@ app.post("/api/whatsapp-campaigns/send", async (req, res) => {
   }
 
   const db = readDB();
-  const targets = db.contacts.filter((c) => contactIds.includes(c.id) && c.phone);
+  let targets = db.contacts.filter((c) => contactIds.includes(c.id) && c.phone);
+
+  // Filter by siteId if provided (and not "all")
+  if (siteId && siteId !== "all") {
+    targets = targets.filter(c => c.siteId === siteId);
+  }
 
   if (targets.length === 0) {
     return res.status(400).json({
@@ -850,8 +1002,6 @@ app.listen(PORT, () => {
   console.log(`   POST /api/whatsapp-campaigns/send`);
   console.log(`   GET  /api/whatsapp-campaigns`);
   console.log(`   GET  /api/whatsapp-logs\n`);
-  console.log(`   POST /api/sms-campaigns/send`);
-  console.log(`   GET  /api/sms-campaigns`);
   console.log(`   GET  /api/email-campaigns`);
   console.log(`   GET  /api/whatsapp-campaigns\n`);
 });

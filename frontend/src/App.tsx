@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Settings as SettingsIcon,
   LogOut,
+  Building2,
 } from "lucide-react";
 import "./styles.css";
 import { Contact, EmailCampaign, WhatsAppCampaign, User } from "./types";
@@ -23,9 +24,10 @@ import ContactList from "./components/ContactList";
 import EmailPortal from "./components/EmailPortal";
 import WhatsAppPortal from "./components/WhatsAppPortal";
 import Settings from "./components/Settings";
+import Sites from "./components/Sites";
 import Login from "./components/Login";
 
-type Page = "dashboard" | "contacts" | "email" | "whatsapp" | "settings";
+type Page = "dashboard" | "contacts" | "email" | "whatsapp" | "sites" | "settings";
 
 export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
@@ -115,6 +117,11 @@ export default function App() {
         label: "WhatsApp Portal",
         icon: <MessageCircle size={16} />,
         badge: waCampaigns.length || undefined,
+      },
+      {
+        id: "sites",
+        label: "Sites",
+        icon: <Building2 size={16} />,
       },
       {
         id: "settings",
@@ -256,6 +263,9 @@ export default function App() {
                 campaigns={waCampaigns}
                 onRefresh={refresh}
               />
+            )}
+            {page === "sites" && (
+              <Sites />
             )}
             {page === "settings" && (
               <Settings />

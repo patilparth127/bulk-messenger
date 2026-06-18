@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from "react";
-import { Send, ChevronDown, ChevronUp, MessageCircle } from "lucide-react";
+import React, { useState, useMemo, useEffect } from "react";
+import { Send, ChevronDown, ChevronUp, MessageCircle, Building2, RefreshCw, QrCode, LogOut } from "lucide-react";
 import toast from "react-hot-toast";
-import { Contact, WhatsAppCampaign, SendStatus } from "../types";
-import { sendWhatsAppCampaign } from "../utils/api";
+import { Contact, WhatsAppCampaign, SendStatus, Site } from "../types";
+import { sendWhatsAppCampaign, getSites, getWhatsAppStatus, logoutWhatsApp } from "../utils/api";
 import { formatDate, formatPhone } from "../utils/helpers";
 import TableControls, { Column, SortConfig, FilterConfig, PaginationConfig } from "./TableControls";
 
@@ -21,6 +21,73 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
   const [msgError, setMsgError] = useState("");
   const [contactError, setContactError] = useState("");
   const [contactSearch, setContactSearch] = useState("");
+  const [sites, setSites] = useState<Site[]>([]);
+  const [selectedSite, setSelectedSite] = useState<string>("all");
+  const [waStatus, setWaStatus] = useState<any>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  // Load sites
+  useEffect(() => {
+    getSites().then(setSites).catch(console.error);
+  }, []);
+
+  // Check WhatsApp status periodically (only when not connected)
+  useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        setCheckingStatus(true);
+        const status = await getWhatsAppStatus();
+        setWaStatus(status);
+        if (status.qrDataUrl) {
+          setQrDataUrl(status.qrDataUrl);
+        }
+      } catch (error) {
+        console.error("Failed to check WhatsApp status:", error);
+      } finally {
+        setCheckingStatus(false);
+      }
+    };
+
+    checkStatus();
+    // Poll every 10 seconds only when not connected
+    const interval = setInterval(() => {
+      if (!waStatus?.waReady) {
+        checkStatus();
+      }
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [waStatus?.waReady]);
+
+  // Handle WhatsApp logout
+  const handleLogout = async () => {
+    try {
+      setLoggingOut(true);
+      await logoutWhatsApp();
+      toast.success("WhatsApp logged out successfully");
+      setQrDataUrl(null);
+      setWaStatus(null);
+      // Check status after logout to get new QR code
+      setTimeout(async () => {
+        try {
+          const status = await getWhatsAppStatus();
+          setWaStatus(status);
+          if (status.qrDataUrl) {
+            setQrDataUrl(status.qrDataUrl);
+          }
+        } catch (error) {
+          console.error("Failed to check WhatsApp status after logout:", error);
+        }
+      }, 1000);
+    } catch (error) {
+      console.error("Failed to logout WhatsApp:", error);
+      toast.error("Failed to logout WhatsApp");
+    } finally {
+      setLoggingOut(false);
+    }
+  };
   
   // Reply buttons simulation
   const [hasReplyButtons, setHasReplyButtons] = useState(false);
@@ -34,6 +101,12 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
   const [historyPagination, setHistoryPagination] = useState<PaginationConfig>({ page: 1, pageSize: 10, total: 0 });
 
   const waContacts = contacts.filter((c) => c.phone);
+
+  // Filter contacts by site
+  const filteredContacts = useMemo(() => {
+    if (selectedSite === "all") return waContacts;
+    return waContacts.filter(c => c.siteId === selectedSite);
+  }, [waContacts, selectedSite]);
 
   // Columns for campaign history
   const historyColumns: Column<WhatsAppCampaign>[] = [
@@ -106,10 +179,10 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
   }, [historySearch, historyFilterConfig, historySortConfig]);
 
   const toggleAll = () => {
-    if (selectedIds.size === waContacts.length) {
+    if (selectedIds.size === filteredContacts.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(waContacts.map((c) => c.id)));
+      setSelectedIds(new Set(filteredContacts.map((c) => c.id)));
     }
   };
 
@@ -120,7 +193,7 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
   };
   
   // Filter contacts based on search query
-  const filteredWaContacts = waContacts.filter((c) => {
+  const filteredWaContacts = filteredContacts.filter((c) => {
     const searchLower = contactSearch.toLowerCase();
     return (
       c.name.toLowerCase().includes(searchLower) ||
@@ -151,6 +224,7 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
         contactIds: Array.from(selectedIds),
         hasReplyButtons,
         replyOptions: hasReplyButtons ? replyOptions : undefined,
+        siteId: selectedSite !== "all" ? selectedSite : undefined,
       });
       toast.dismiss(tid);
       toast.success(`✅ Sent: ${result.sentCount}  ❌ Failed: ${result.failedCount}`);
@@ -222,8 +296,98 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
             <div className="portal-band portal-band-wa" />
             <div className="card-header">
               <h3>Compose WhatsApp Message</h3>
+              <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+                {waStatus && !waStatus.waReady && (
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setCheckingStatus(true);
+                      getWhatsAppStatus().then((status) => {
+                        setWaStatus(status);
+                        if (status.qrDataUrl) setQrDataUrl(status.qrDataUrl);
+                      }).finally(() => setCheckingStatus(false));
+                    }}
+                    style={{ padding: "4px 8px", fontSize: "0.75rem" }}
+                    disabled={checkingStatus}
+                  >
+                    <RefreshCw size={12} style={{ marginRight: 4, ...(checkingStatus && { animation: "spin 1s linear infinite" }) }} />
+                    Refresh
+                  </button>
+                )}
+                {waStatus && waStatus.waReady && (
+                  <button
+                    className="btn btn-secondary"
+                    onClick={handleLogout}
+                    style={{ padding: "4px 8px", fontSize: "0.75rem" }}
+                    disabled={loggingOut}
+                  >
+                    <LogOut size={12} style={{ marginRight: 4 }} />
+                    {loggingOut ? "Logging out..." : "Logout"}
+                  </button>
+                )}
+              </div>
             </div>
             <div className="card-body" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {!waStatus?.waReady ? (
+                // Show QR code when not connected
+                <div style={{ textAlign: "center", padding: "40px 20px" }}>
+                  {checkingStatus ? (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+                      <span className="spinner spinner-dark" style={{ width: 32, height: 32 }} />
+                      <p style={{ color: "var(--text-muted)" }}>Checking WhatsApp status...</p>
+                    </div>
+                  ) : qrDataUrl ? (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+                      <div style={{
+                        background: "white",
+                        padding: 16,
+                        borderRadius: 8,
+                        boxShadow: "0 2px 8px rgba(0,0,0,0.1)",
+                      }}>
+                        <img src={qrDataUrl} alt="WhatsApp QR Code" style={{ width: 200, height: 200 }} />
+                      </div>
+                      <div>
+                        <h4 style={{ marginBottom: 8, color: "#1a1a1a" }}>Scan QR Code with WhatsApp</h4>
+                        <p style={{ fontSize: "0.85rem", color: "#666", marginBottom: 12 }}>
+                          1. Open WhatsApp on your phone<br />
+                          2. Go to Settings → Linked Devices<br />
+                          3. Tap "Link a Device"<br />
+                          4. Scan the QR code above
+                        </p>
+                        {waStatus?.state && (
+                          <p style={{ fontSize: "0.75rem", color: "#999" }}>
+                            Status: {waStatus.state}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+                      <QrCode size={64} style={{ color: "var(--text-muted)" }} />
+                      <div>
+                        <h4 style={{ marginBottom: 8 }}>WhatsApp Not Connected</h4>
+                        <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: 12 }}>
+                          Waiting for QR code to be generated...
+                        </p>
+                        <button
+                          className="btn btn-primary-wa"
+                          onClick={() => {
+                            setCheckingStatus(true);
+                            getWhatsAppStatus().then((status) => {
+                              setWaStatus(status);
+                              if (status.qrDataUrl) setQrDataUrl(status.qrDataUrl);
+                            }).finally(() => setCheckingStatus(false));
+                          }}
+                          disabled={checkingStatus}
+                        >
+                          {checkingStatus ? "Checking..." : "Check Status"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
               <div style={{
                 background: "var(--accent-wa-light)",
                 border: "1px solid var(--accent-wa-border)",
@@ -339,6 +503,8 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
                 {sending ? <span className="spinner" /> : <Send size={16} />}
                 {sending ? "Sending…" : `Send to ${selectedIds.size} Contact${selectedIds.size !== 1 ? "s" : ""}`}
               </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -360,6 +526,22 @@ export default function WhatsAppPortal({ contacts, campaigns, onRefresh }: Props
                 </div>
               ) : (
                 <>
+                  <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--border-light)", display: "flex", gap: 8, alignItems: "center" }}>
+                    <Building2 size={16} style={{ color: "var(--text-muted)" }} />
+                    <select
+                      className="form-select"
+                      style={{ fontSize: "0.85rem", padding: "6px 8px", flex: 1 }}
+                      value={selectedSite}
+                      onChange={(e) => setSelectedSite(e.target.value)}
+                    >
+                      <option value="all">All Sites</option>
+                      {sites.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--border-light)" }}>
                     <input
                       type="text"

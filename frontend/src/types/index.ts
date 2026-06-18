@@ -32,6 +32,7 @@ export interface Contact {
   phone: string;
   gender: Gender;
   status: ContactStatus;
+  siteId: string | null;
   createdAt: string;
   emailSentCount: number;
   whatsappSentCount: number;
@@ -110,6 +111,7 @@ export interface SendEmailPayload {
   smtpHost: string;
   smtpPort: number;
   contactIds: string[];
+  siteId?: string;
 }
 
 export interface SendWhatsAppPayload {
@@ -117,6 +119,19 @@ export interface SendWhatsAppPayload {
   contactIds: string[];
   hasReplyButtons?: boolean;
   replyOptions?: string[];
+  siteId?: string;
+}
+
+export interface Site {
+  id: string;
+  name: string;
+  code: string;
+  address: string;
+  city: string;
+  state: string;
+  country: string;
+  phone: string;
+  createdAt: string;
 }
 
 export interface ApiResponse<T> {

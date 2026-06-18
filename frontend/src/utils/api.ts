@@ -11,6 +11,7 @@ import {
   AppSettings,
   DelaySettings,
   ContactStatus,
+  Site,
 } from "../types";
 
 const BASE = "/api";
@@ -82,6 +83,26 @@ export const updateSettings = (settings: Partial<AppSettings>) =>
 
 export const updateDelaySettings = (type: "whatsapp" | "email", settings: Partial<DelaySettings>) =>
   api.put<DelaySettings>(`/settings/delay/${type}`, settings).then((r) => r.data);
+
+// ─── Sites ───────────────────────────────────────────────────────
+export const getSites = () =>
+  api.get<Site[]>("/sites").then((r) => r.data);
+
+export const createSite = (data: Partial<Site>) =>
+  api.post<Site>("/sites", data).then((r) => r.data);
+
+export const updateSite = (id: string, data: Partial<Site>) =>
+  api.put<Site>(`/sites/${id}`, data).then((r) => r.data);
+
+export const deleteSite = (id: string) =>
+  api.delete(`/sites/${id}`).then((r) => r.data);
+
+// ─── WhatsApp Status ───────────────────────────────────────────────
+export const getWhatsAppStatus = () =>
+  api.get("/whatsapp-status").then((r) => r.data);
+
+export const logoutWhatsApp = () =>
+  api.post("/whatsapp-logout").then((r) => r.data);
 
 
 

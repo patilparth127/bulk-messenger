@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from "react";
-import { Send, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, Settings } from "lucide-react";
+import React, { useState, useMemo, useEffect } from "react";
+import { Send, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, Settings, Building2 } from "lucide-react";
 import toast from "react-hot-toast";
-import { Contact, EmailCampaign, SendStatus } from "../types";
-import { sendEmailCampaign } from "../utils/api";
+import { Contact, EmailCampaign, SendStatus, Site } from "../types";
+import { sendEmailCampaign, getSites } from "../utils/api";
 import { formatDate } from "../utils/helpers";
 import TableControls, { Column, SortConfig, FilterConfig, PaginationConfig } from "./TableControls";
 
@@ -19,6 +19,13 @@ export default function EmailPortal({ contacts, campaigns, onRefresh }: Props) {
   const [sending, setSending] = useState(false);
   const [showSmtp, setShowSmtp] = useState(false);
   const [contactSearch, setContactSearch] = useState("");
+  const [sites, setSites] = useState<Site[]>([]);
+  const [selectedSite, setSelectedSite] = useState<string>("all");
+
+  // Load sites
+  useEffect(() => {
+    getSites().then(setSites).catch(console.error);
+  }, []);
   
   // Table controls for campaign history
   const [historySearch, setHistorySearch] = useState("");
@@ -35,6 +42,12 @@ export default function EmailPortal({ contacts, campaigns, onRefresh }: Props) {
     smtpPort: 587,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Filter contacts by site
+  const filteredContacts = useMemo(() => {
+    if (selectedSite === "all") return contacts;
+    return contacts.filter(c => c.siteId === selectedSite);
+  }, [contacts, selectedSite]);
 
   // Columns for campaign history
   const historyColumns: Column<EmailCampaign>[] = [
@@ -119,10 +132,10 @@ export default function EmailPortal({ contacts, campaigns, onRefresh }: Props) {
   };
 
   const toggleAll = () => {
-    if (selectedIds.size === contacts.filter((c) => c.email).length) {
+    if (selectedIds.size === filteredContacts.filter((c) => c.email).length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(contacts.filter((c) => c.email).map((c) => c.id)));
+      setSelectedIds(new Set(filteredContacts.filter((c) => c.email).map((c) => c.id)));
     }
   };
 
@@ -141,6 +154,7 @@ export default function EmailPortal({ contacts, campaigns, onRefresh }: Props) {
       const result = await sendEmailCampaign({
         ...form,
         contactIds: Array.from(selectedIds),
+        siteId: selectedSite !== "all" ? selectedSite : undefined,
       });
       toast.dismiss(tid);
       toast.success(`✅ Sent: ${result.sentCount}  ❌ Failed: ${result.failedCount}`);
@@ -158,8 +172,8 @@ export default function EmailPortal({ contacts, campaigns, onRefresh }: Props) {
     }
   };
 
-  const emailContacts = contacts.filter((c) => c.email);
-  
+  const emailContacts = filteredContacts.filter((c) => c.email);
+
   // Filter contacts based on search query
   const filteredEmailContacts = emailContacts.filter((c) => {
     const searchLower = contactSearch.toLowerCase();
@@ -326,6 +340,22 @@ export default function EmailPortal({ contacts, campaigns, onRefresh }: Props) {
                 </div>
               ) : (
                 <>
+                  <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--border-light)", display: "flex", gap: 8, alignItems: "center" }}>
+                    <Building2 size={16} style={{ color: "var(--text-muted)" }} />
+                    <select
+                      className="form-select"
+                      style={{ fontSize: "0.85rem", padding: "6px 8px", flex: 1 }}
+                      value={selectedSite}
+                      onChange={(e) => setSelectedSite(e.target.value)}
+                    >
+                      <option value="all">All Sites</option>
+                      {sites.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <div style={{ padding: "10px 16px", borderBottom: "1px solid var(--border-light)" }}>
                     <input
                       type="text"

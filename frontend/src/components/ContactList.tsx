@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useMemo } from "react";
+import React, { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import {
   Upload,
   Trash2,
@@ -15,10 +15,11 @@ import {
   Circle,
   Pause,
   Ban,
+  Building2,
 } from "lucide-react";
 import toast from "react-hot-toast";
-import { Contact, Gender, ContactStatus } from "../types";
-import { createContact, deleteContact, deleteAllContacts, uploadExcel, updateContactStatus } from "../utils/api";
+import { Contact, Gender, ContactStatus, Site } from "../types";
+import { createContact, deleteContact, deleteAllContacts, uploadExcel, updateContactStatus, getSites } from "../utils/api";
 import { formatDate, formatPhone, genderLabel } from "../utils/helpers";
 import TableControls, { Column, SortConfig, FilterConfig, PaginationConfig } from "./TableControls";
 
@@ -39,10 +40,18 @@ export default function ContactList({ contacts, onRefresh }: Props) {
     email: "",
     phone: "",
     gender: Gender.OTHER,
+    siteId: "",
   });
   const [addErrors, setAddErrors] = useState<Record<string, string>>({});
   const [adding, setAdding] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [sites, setSites] = useState<Site[]>([]);
+  const [selectedSite, setSelectedSite] = useState<string>("all");
+
+  // Load sites
+  useEffect(() => {
+    getSites().then(setSites).catch(console.error);
+  }, []);
   
   // Multi-select
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -88,6 +97,17 @@ export default function ContactList({ contacts, onRefresh }: Props) {
         { value: ContactStatus.ACTIVE, label: "Active" },
         { value: ContactStatus.INACTIVE, label: "Inactive" },
         { value: ContactStatus.DUMP, label: "Dump" },
+      ],
+    },
+    {
+      key: "siteId",
+      label: "Site",
+      sortable: true,
+      filterable: true,
+      filterType: "select",
+      filterOptions: [
+        { value: "all", label: "All Sites" },
+        ...sites.map(s => ({ value: s.id, label: s.name })),
       ],
     },
     { key: "emailSentCount", label: "Email Sent", sortable: true },
@@ -179,7 +199,7 @@ export default function ContactList({ contacts, onRefresh }: Props) {
     try {
       await createContact(addForm);
       toast.success("Contact added!");
-      setAddForm({ name: "", email: "", phone: "", gender: Gender.OTHER });
+      setAddForm({ name: "", email: "", phone: "", gender: Gender.OTHER, siteId: "" });
       setShowAddForm(false);
       setAddErrors({});
       onRefresh();
@@ -413,6 +433,21 @@ export default function ContactList({ contacts, onRefresh }: Props) {
                 >
                   {GENDERS.map((g) => (
                     <option key={g} value={g}>{genderLabel(g)}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Site</label>
+                <select
+                  className="form-select"
+                  value={addForm.siteId}
+                  onChange={(e) => setAddForm({ ...addForm, siteId: e.target.value })}
+                >
+                  <option value="">No Site</option>
+                  {sites.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.code})
+                    </option>
                   ))}
                 </select>
               </div>
